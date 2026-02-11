@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(npx create-next-app:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nv1.1: Add parent dashboard and role-based auth\n\n- Add parent role alongside admin with separate dashboards\n- Parent dashboard shows children, registered programs, upcoming events, and quick actions\n- Registration now persists to localStorage and creates parent accounts\n- Demo credentials: admin@trilobit.cz/admin \\(admin\\), rodic@trilobit.cz/rodic \\(parent\\)\n- Login form shows demo credential hints\n- Backward compatible migration from old auth key\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")"
     ]
   }
 }
