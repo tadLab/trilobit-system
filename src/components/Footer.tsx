@@ -54,14 +54,18 @@ export function Footer() {
             <h3 className="text-lg mb-4">Sledujte nás</h3>
             <div className="flex gap-4 mb-6">
               <a
-                href="#"
+                href="https://www.facebook.com/groups/476391042383257"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="w-10 h-10 bg-stone-800 rounded-full flex items-center justify-center hover:bg-blue-900 transition-colors"
                 aria-label="Facebook"
               >
                 <Facebook className="w-5 h-5" />
               </a>
               <a
-                href="#"
+                href="https://www.instagram.com/trilobit_kmen_llm/"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="w-10 h-10 bg-stone-800 rounded-full flex items-center justify-center hover:bg-blue-900 transition-colors"
                 aria-label="Instagram"
               >
@@ -69,18 +73,18 @@ export function Footer() {
               </a>
             </div>
             <div className="space-y-2">
-              <a
-                href="#"
+              <Link
+                href="/gdpr"
                 className="block text-stone-400 hover:text-blue-700 transition-colors text-sm"
               >
                 Ochrana osobních údajů (GDPR)
-              </a>
-              <a
-                href="#"
+              </Link>
+              <Link
+                href="/podminky"
                 className="block text-stone-400 hover:text-blue-700 transition-colors text-sm"
               >
                 Podmínky použití
-              </a>
+              </Link>
             </div>
           </div>
         </div>

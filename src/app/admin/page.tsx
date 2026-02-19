@@ -5,26 +5,29 @@ import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import {
   Calendar, FileText, Users, Settings, LogOut, Plus, Pencil, Mail, BarChart, Lock, User, AlertCircle,
-  MapPin, Clock, ChevronRight, ChevronDown, BookOpen, Flame, Trophy, Star, TreePine, Compass, X, Check, Trash2, Save,
+  MapPin, Clock, ChevronRight, ChevronDown, BookOpen, Flame, Trophy, Star, TreePine, Compass, X, Check, Trash2, Save, Shield, Award,
 } from "lucide-react";
 import Link from "next/link";
 import { useEvents } from "@/hooks/useEvents";
 import { usePrograms } from "@/hooks/usePrograms";
 import { useChildren } from "@/hooks/useChildren";
-import type { CalEvent, Program, Child } from "@/types/data";
+import { useFriends } from "@/hooks/useFriends";
+import { useAttendance } from "@/hooks/useAttendance";
+import { useAchievements } from "@/hooks/useAchievements";
+import type { CalEvent, Program, Child, Achievement } from "@/types/data";
 
 /* ── Types ── */
 interface TrilobitUser {
   email: string;
   name: string;
-  role: "admin" | "parent" | "teen";
+  role: "admin" | "parent" | "teen" | "leader";
 }
 
 interface RegisteredUser {
   email: string;
   name: string;
   password: string;
-  role: "parent" | "teen";
+  role: "parent" | "teen" | "leader";
 }
 
 type AuthMode = "login" | "register";
@@ -65,6 +68,13 @@ function LoginForm({ onLogin }: { onLogin: (user: TrilobitUser) => void }) {
       // Demo teen
       if (formData.email === "dite@trilobit.cz" && formData.password === "dite") {
         const user: TrilobitUser = { email: "dite@trilobit.cz", name: "Tomáš Novák", role: "teen" };
+        localStorage.setItem("trilobit_user", JSON.stringify(user));
+        onLogin(user);
+        return;
+      }
+      // Demo leader
+      if (formData.email === "vedouci@trilobit.cz" && formData.password === "vedouci") {
+        const user: TrilobitUser = { email: "vedouci@trilobit.cz", name: "Marek Procházka", role: "leader" };
         localStorage.setItem("trilobit_user", JSON.stringify(user));
         onLogin(user);
         return;
@@ -247,6 +257,7 @@ function LoginForm({ onLogin }: { onLogin: (user: TrilobitUser) => void }) {
               <div className="mt-4 p-3 bg-stone-50 border border-stone-200 rounded-lg">
                 <p className="text-xs text-stone-500 mb-1 font-medium">Demo přístupy:</p>
                 <p className="text-xs text-stone-500">Admin: admin@trilobit.cz / admin</p>
+                <p className="text-xs text-stone-500">Vedoucí: vedouci@trilobit.cz / vedouci</p>
                 <p className="text-xs text-stone-500">Rodič: rodic@trilobit.cz / rodic</p>
                 <p className="text-xs text-stone-500">Dítě/Teen: dite@trilobit.cz / dite</p>
               </div>
@@ -704,13 +715,11 @@ function ParentDashboard({ user, onLogout }: { user: TrilobitUser; onLogout: () 
   );
 }
 
-/* ── Mock Data for Teen Dashboard ── */
-const mockTeenProfile = {
-  name: "Tomáš Novák",
-  age: 13,
+/* ── Teen Profile (demo — could be localStorage-backed in future) ── */
+const teenProfile = {
   tribe: "Velký kmen",
+  programId: "prog-2",
   since: "Září 2023",
-  avatar: "T",
   rank: "Stopař",
   points: 245,
   badges: [
@@ -722,46 +731,90 @@ const mockTeenProfile = {
   ],
 };
 
-const mockTeenFriends = [
-  { name: "Jakub K.", avatar: "J", tribe: "Velký kmen" },
-  { name: "Aneta V.", avatar: "A", tribe: "Velký kmen" },
-  { name: "Marek P.", avatar: "M", tribe: "Velký kmen" },
-  { name: "Sofie H.", avatar: "S", tribe: "Malý kmen" },
-  { name: "Adam R.", avatar: "A", tribe: "Velký kmen" },
-  { name: "Lucie D.", avatar: "L", tribe: "Malý kmen" },
-];
-
-const initialTeenEvents = [
-  { id: "1", title: "Velký kmen — týdenní setkání", date: "20. března 2026", time: "15:00", location: "Choltice a okolí", going: true, friends: ["Jakub K.", "Aneta V.", "Marek P.", "Adam R."] },
-  { id: "2", title: "Jarní výprava do Poodří", date: "15. března 2026", time: "9:00", location: "Poodří", going: true, friends: ["Jakub K.", "Aneta V.", "Marek P.", "Sofie H.", "Adam R."] },
-  { id: "3", title: "Noční hledačka", date: "28. března 2026", time: "18:00", location: "Les u Choltic", going: false, friends: ["Jakub K.", "Marek P."] },
-];
-
 /* ── Teen Dashboard ── */
 function TeenDashboard({ user, onLogout }: { user: TrilobitUser; onLogout: () => void }) {
-  const [events, setEvents] = useState(initialTeenEvents);
-  const [selectedBadge, setSelectedBadge] = useState<number | null>(null);
+  const { events: allEvents, isLoaded: eventsLoaded } = useEvents();
+  const { friends, isLoaded: friendsLoaded, addFriend, removeFriend } = useFriends(user.email);
+  const { isLoaded: attendanceLoaded, toggleAttendance, isAttending } = useAttendance(user.email);
 
-  const toggleAttendance = (eventId: string) => {
-    setEvents((prev) =>
-      prev.map((e) => (e.id === eventId ? { ...e, going: !e.going } : e))
-    );
+  const [selectedBadge, setSelectedBadge] = useState<number | null>(null);
+  const [showAddFriend, setShowAddFriend] = useState(false);
+  const [friendSearch, setFriendSearch] = useState("");
+  const [feedback, setFeedback] = useState("");
+
+  const showFeedback = (msg: string) => { setFeedback(msg); setTimeout(() => setFeedback(""), 2500); };
+
+  // Load registered users for the friend picker
+  const [registeredUsers, setRegisteredUsers] = useState<RegisteredUser[]>([]);
+  useEffect(() => {
+    const raw = localStorage.getItem("trilobit_registered_users");
+    if (raw) {
+      try { setRegisteredUsers(JSON.parse(raw)); } catch { /* ignore */ }
+    }
+  }, []);
+
+  // Available users = registered users minus self and already-added friends
+  const friendNames = new Set(friends.map((f) => f.name));
+  const availableUsers = registeredUsers.filter(
+    (u) => u.email !== user.email && !friendNames.has(u.name)
+  );
+  const filteredUsers = friendSearch
+    ? availableUsers.filter((u) => u.name.toLowerCase().includes(friendSearch.toLowerCase()))
+    : availableUsers;
+
+  // Upcoming events from real data
+  const upcomingEvents = allEvents
+    .filter((e) => new Date(e.date) >= new Date())
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    .slice(0, 6);
+
+  const goingCount = upcomingEvents.filter((e) => isAttending(e.id)).length;
+  const firstName = user.name.split(" ")[0];
+  const avatar = user.name.charAt(0).toUpperCase();
+
+  const handleToggle = (eventId: string) => {
+    const nowGoing = toggleAttendance(eventId);
+    showFeedback(nowGoing ? "Přihlášen/a na akci!" : "Odhlášen/a z akce");
   };
 
-  const goingCount = events.filter((e) => e.going).length;
+  const handlePickFriend = (pickedUser: RegisteredUser) => {
+    addFriend({
+      name: pickedUser.name,
+      avatar: pickedUser.name.charAt(0).toUpperCase(),
+      tribe: pickedUser.role === "teen" ? "Velký kmen" : "Malý kmen",
+    });
+    setFriendSearch("");
+    setShowAddFriend(false);
+    showFeedback(`${pickedUser.name} přidán/a!`);
+  };
+
+  if (!eventsLoaded || !friendsLoaded || !attendanceLoaded) {
+    return (
+      <section className="py-12 bg-stone-50 min-h-[80vh] flex items-center justify-center">
+        <div className="text-stone-400 text-lg">Načítání…</div>
+      </section>
+    );
+  }
 
   return (
     <section className="py-12 bg-stone-50 min-h-[80vh]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Feedback toast */}
+        {feedback && (
+          <div className="fixed top-6 right-6 z-50 bg-green-600 text-white px-6 py-3 rounded-xl shadow-lg flex items-center gap-2 animate-pulse">
+            <Check className="w-5 h-5" />{feedback}
+          </div>
+        )}
+
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 bg-blue-100 rounded-full flex items-center justify-center">
-              <span className="text-blue-900 font-bold text-2xl">{mockTeenProfile.avatar}</span>
+              <span className="text-blue-900 font-bold text-2xl">{avatar}</span>
             </div>
             <div>
-              <h1 className="text-3xl font-bold text-stone-900">Ahoj, {mockTeenProfile.name.split(" ")[0]}!</h1>
-              <p className="text-lg text-stone-600">{mockTeenProfile.tribe} · {mockTeenProfile.rank}</p>
+              <h1 className="text-3xl font-bold text-stone-900">Ahoj, {firstName}!</h1>
+              <p className="text-lg text-stone-600">{teenProfile.tribe} · {teenProfile.rank}</p>
             </div>
           </div>
           <button onClick={onLogout} className="flex items-center gap-2 px-6 py-3 bg-white border border-stone-300 text-stone-700 rounded-lg hover:bg-stone-50 transition-colors">
@@ -773,70 +826,90 @@ function TeenDashboard({ user, onLogout }: { user: TrilobitUser; onLogout: () =>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <div className="bg-white rounded-xl p-5 border border-stone-200 text-center">
             <Flame className="w-6 h-6 text-amber-500 mx-auto mb-2" />
-            <p className="text-2xl font-bold text-stone-900">{mockTeenProfile.points}</p>
+            <p className="text-2xl font-bold text-stone-900">{teenProfile.points}</p>
             <p className="text-sm text-stone-500">Bodů</p>
           </div>
           <div className="bg-white rounded-xl p-5 border border-stone-200 text-center">
             <Trophy className="w-6 h-6 text-amber-500 mx-auto mb-2" />
-            <p className="text-2xl font-bold text-stone-900">{mockTeenProfile.badges.length}</p>
+            <p className="text-2xl font-bold text-stone-900">{teenProfile.badges.length}</p>
             <p className="text-sm text-stone-500">Odznaky</p>
           </div>
           <div className="bg-white rounded-xl p-5 border border-stone-200 text-center">
             <Calendar className="w-6 h-6 text-blue-900 mx-auto mb-2" />
             <p className="text-2xl font-bold text-stone-900">{goingCount}</p>
-            <p className="text-sm text-stone-500">Nadcházející akce</p>
+            <p className="text-sm text-stone-500">Jdu na akce</p>
           </div>
           <div className="bg-white rounded-xl p-5 border border-stone-200 text-center">
             <Users className="w-6 h-6 text-blue-900 mx-auto mb-2" />
-            <p className="text-2xl font-bold text-stone-900">{mockTeenFriends.length}</p>
-            <p className="text-sm text-stone-500">Kamarádi v kmeni</p>
+            <p className="text-2xl font-bold text-stone-900">{friends.length}</p>
+            <p className="text-sm text-stone-500">Kamarádi</p>
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
           {/* Upcoming events — takes 2 cols */}
           <div className="lg:col-span-2 space-y-8">
-            {/* Events */}
+            {/* Events — from real data */}
             <div className="bg-white rounded-xl p-6 border border-stone-200">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-stone-900">Moje akce</h2>
+                <h2 className="text-xl font-bold text-stone-900">Nadcházející akce</h2>
                 <Link href="/kalendar" className="text-sm text-blue-900 hover:text-blue-950 font-medium flex items-center gap-1">
                   Celý kalendář<ChevronRight className="w-4 h-4" />
                 </Link>
               </div>
-              <div className="space-y-4">
-                {events.map((event) => (
-                  <div key={event.id} className={`p-4 rounded-xl border ${event.going ? "bg-blue-50 border-blue-200" : "bg-stone-50 border-stone-200"}`}>
-                    <div className="flex items-start justify-between mb-2">
-                      <h3 className="font-semibold text-stone-900">{event.title}</h3>
-                      <button
-                        onClick={() => toggleAttendance(event.id)}
-                        className={`text-xs font-medium px-2.5 py-1 rounded-full border transition-colors cursor-pointer ${
-                          event.going
-                            ? "text-green-700 bg-green-50 border-green-200 hover:bg-red-50 hover:text-red-700 hover:border-red-200"
-                            : "text-stone-500 bg-stone-100 border-stone-200 hover:bg-green-50 hover:text-green-700 hover:border-green-200"
-                        }`}
-                      >
-                        {event.going ? "Jdu ✓" : "Nejdu"}
-                      </button>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3 text-sm text-stone-600 mb-3">
-                      <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-blue-900" />{event.date} v {event.time}</span>
-                      <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5 text-blue-900" />{event.location}</span>
-                    </div>
-                    {event.friends.length > 0 && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-stone-500">Jdou taky:</span>
-                        <div className="flex flex-wrap gap-1">
-                          {event.friends.map((f, i) => (
-                            <span key={i} className="text-xs bg-white px-2 py-0.5 rounded-full border border-stone-200 text-stone-700">{f}</span>
-                          ))}
+              {upcomingEvents.length === 0 ? (
+                <p className="text-stone-500 text-sm text-center py-6">Momentálně nejsou žádné nadcházející akce.</p>
+              ) : (
+                <div className="space-y-4">
+                  {upcomingEvents.map((event) => {
+                    const going = isAttending(event.id);
+                    // Show which friends are attending this event (from attendees list)
+                    const friendNames = friends.map((f) => f.name);
+                    const friendsOnEvent = event.attendees?.filter((a) => friendNames.includes(a.name)).map((a) => a.name) ?? [];
+
+                    return (
+                      <div key={event.id} className={`p-4 rounded-xl border ${going ? "bg-blue-50 border-blue-200" : "bg-stone-50 border-stone-200"}`}>
+                        <div className="flex items-start justify-between mb-2">
+                          <div>
+                            <h3 className="font-semibold text-stone-900">{event.title}</h3>
+                            <span className={`inline-block mt-1 text-[10px] font-medium px-2 py-0.5 rounded-full ${
+                              event.type === "expedition" ? "bg-blue-100 text-blue-800" : event.type === "special" ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"
+                            }`}>
+                              {event.type === "expedition" ? "Výprava" : event.type === "special" ? "Speciální" : "Setkání"}
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => handleToggle(event.id)}
+                            className={`text-xs font-medium px-3 py-1.5 rounded-full border transition-colors cursor-pointer ${
+                              going
+                                ? "text-green-700 bg-green-50 border-green-200 hover:bg-red-50 hover:text-red-700 hover:border-red-200"
+                                : "text-stone-500 bg-stone-100 border-stone-200 hover:bg-green-50 hover:text-green-700 hover:border-green-200"
+                            }`}
+                          >
+                            {going ? "Jdu ✓" : "Přihlásit se"}
+                          </button>
                         </div>
+                        <div className="flex flex-wrap items-center gap-3 text-sm text-stone-600 mb-2">
+                          <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-blue-900" />{new Date(event.date).toLocaleDateString("cs-CZ", { day: "numeric", month: "long" })} v {event.time}</span>
+                          <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5 text-blue-900" />{event.location}</span>
+                          {event.spotsLeft !== undefined && <span className="flex items-center gap-1"><Users className="w-3.5 h-3.5 text-stone-400" />{event.spotsLeft} volných míst</span>}
+                        </div>
+                        <p className="text-xs text-stone-500 mb-2">{event.description}</p>
+                        {friendsOnEvent.length > 0 && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-blue-900 font-medium">Jdou taky:</span>
+                            <div className="flex flex-wrap gap-1">
+                              {friendsOnEvent.map((f, i) => (
+                                <span key={i} className="text-xs bg-white px-2 py-0.5 rounded-full border border-blue-200 text-blue-800">{f}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                ))}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Badges */}
@@ -845,11 +918,11 @@ function TeenDashboard({ user, onLogout }: { user: TrilobitUser; onLogout: () =>
                 <h2 className="text-xl font-bold text-stone-900">Moje odznaky</h2>
                 <div className="flex items-center gap-1 text-sm text-stone-500">
                   <Star className="w-4 h-4 text-amber-500" />
-                  <span>{mockTeenProfile.badges.length} získaných</span>
+                  <span>{teenProfile.badges.length} získaných</span>
                 </div>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {mockTeenProfile.badges.map((badge, i) => (
+                {teenProfile.badges.map((badge, i) => (
                   <button
                     key={i}
                     onClick={() => setSelectedBadge(selectedBadge === i ? null : i)}
@@ -882,46 +955,108 @@ function TeenDashboard({ user, onLogout }: { user: TrilobitUser; onLogout: () =>
               <div className="space-y-3">
                 <div className="flex items-center justify-between py-2 border-b border-stone-100">
                   <span className="text-sm text-stone-500">Kmen</span>
-                  <span className="text-sm font-medium text-stone-900">{mockTeenProfile.tribe}</span>
+                  <span className="text-sm font-medium text-stone-900">{teenProfile.tribe}</span>
                 </div>
                 <div className="flex items-center justify-between py-2 border-b border-stone-100">
                   <span className="text-sm text-stone-500">Hodnost</span>
-                  <span className="text-sm font-medium text-stone-900">{mockTeenProfile.rank}</span>
+                  <span className="text-sm font-medium text-stone-900">{teenProfile.rank}</span>
                 </div>
                 <div className="flex items-center justify-between py-2 border-b border-stone-100">
-                  <span className="text-sm text-stone-500">Věk</span>
-                  <span className="text-sm font-medium text-stone-900">{mockTeenProfile.age} let</span>
+                  <span className="text-sm text-stone-500">Body</span>
+                  <span className="text-sm font-medium text-stone-900">{teenProfile.points}</span>
                 </div>
                 <div className="flex items-center justify-between py-2">
                   <span className="text-sm text-stone-500">Členem od</span>
-                  <span className="text-sm font-medium text-stone-900">{mockTeenProfile.since}</span>
+                  <span className="text-sm font-medium text-stone-900">{teenProfile.since}</span>
                 </div>
               </div>
             </div>
 
-            {/* Friends */}
+            {/* Friends — dynamic with add/remove */}
             <div className="bg-white rounded-xl p-6 border border-stone-200">
-              <h2 className="text-lg font-bold text-stone-900 mb-4">Kamarádi v kmeni</h2>
-              <div className="space-y-3">
-                {mockTeenFriends.map((friend, i) => (
-                  <div key={i} className="flex items-center gap-3 p-2 rounded-lg hover:bg-stone-50 transition-colors">
-                    <div className="w-9 h-9 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-                      <span className="text-sm font-bold text-blue-900">{friend.avatar}</span>
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-stone-900">{friend.name}</p>
-                      <p className="text-xs text-stone-500">{friend.tribe}</p>
-                    </div>
-                  </div>
-                ))}
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-stone-900">Kamarádi v kmeni</h2>
+                <button
+                  onClick={() => setShowAddFriend(!showAddFriend)}
+                  className="text-xs text-blue-900 hover:text-blue-950 font-medium flex items-center gap-1"
+                >
+                  <Plus className="w-3.5 h-3.5" />Přidat
+                </button>
               </div>
+
+              {/* Add friend — pick from real users */}
+              {showAddFriend && (
+                <div className="mb-4 p-3 bg-blue-50 rounded-xl border border-blue-200 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-medium text-stone-700">Vyber člena</label>
+                    <button onClick={() => { setShowAddFriend(false); setFriendSearch(""); }} className="text-stone-400 hover:text-stone-600"><X className="w-3.5 h-3.5" /></button>
+                  </div>
+                  <input
+                    type="text"
+                    value={friendSearch}
+                    onChange={(e) => setFriendSearch(e.target.value)}
+                    className="w-full px-3 py-1.5 rounded-lg border border-stone-300 text-sm focus:border-blue-900 focus:ring-2 focus:ring-blue-900/20 outline-none"
+                    placeholder="Hledat podle jména…"
+                    autoFocus
+                  />
+                  {availableUsers.length === 0 ? (
+                    <p className="text-xs text-stone-500 py-2 text-center">Žádní další členové k přidání.</p>
+                  ) : filteredUsers.length === 0 ? (
+                    <p className="text-xs text-stone-500 py-2 text-center">Nikdo neodpovídá hledání.</p>
+                  ) : (
+                    <div className="max-h-40 overflow-y-auto space-y-1">
+                      {filteredUsers.map((u) => (
+                        <button
+                          key={u.email}
+                          onClick={() => handlePickFriend(u)}
+                          className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-blue-100 transition-colors text-left"
+                        >
+                          <div className="w-7 h-7 bg-blue-200 rounded-full flex items-center justify-center flex-shrink-0">
+                            <span className="text-xs font-bold text-blue-900">{u.name.charAt(0)}</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-stone-900 truncate">{u.name}</p>
+                            <p className="text-xs text-stone-500">{u.role === "teen" ? "Člen" : u.role === "parent" ? "Rodič" : "Vedoucí"}</p>
+                          </div>
+                          <Plus className="w-3.5 h-3.5 text-blue-900 flex-shrink-0" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {friends.length === 0 ? (
+                <p className="text-stone-500 text-sm text-center py-4">Zatím nemáš žádné kamarády.</p>
+              ) : (
+                <div className="space-y-2">
+                  {friends.map((friend) => (
+                    <div key={friend.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-stone-50 transition-colors group">
+                      <div className="w-9 h-9 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        <span className="text-sm font-bold text-blue-900">{friend.avatar}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-stone-900">{friend.name}</p>
+                        <p className="text-xs text-stone-500">{friend.tribe}</p>
+                      </div>
+                      <button
+                        onClick={() => { removeFriend(friend.id); showFeedback(`${friend.name} odebrán/a`); }}
+                        className="opacity-0 group-hover:opacity-100 p-1.5 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                        title="Odebrat kamaráda"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {/* Quick links */}
+            {/* Quick links — deep-linked */}
             <div className="space-y-3">
-              <Link href="/programy" className="flex items-center gap-3 p-4 bg-blue-50 border border-blue-200 rounded-xl hover:shadow-md transition-all">
+              <Link href={`/programy?program=${teenProfile.programId}`} className="flex items-center gap-3 p-4 bg-blue-50 border border-blue-200 rounded-xl hover:shadow-md transition-all">
                 <TreePine className="w-5 h-5 text-blue-900" />
-                <span className="text-sm font-medium text-stone-900">Naše programy</span>
+                <span className="text-sm font-medium text-stone-900">Můj program: {teenProfile.tribe}</span>
                 <ChevronRight className="w-4 h-4 text-stone-400 ml-auto" />
               </Link>
               <Link href="/kalendar" className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl hover:shadow-md transition-all">
@@ -932,6 +1067,440 @@ function TeenDashboard({ user, onLogout }: { user: TrilobitUser; onLogout: () =>
             </div>
           </div>
         </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── Leader Dashboard ── */
+function LeaderDashboard({ user, onLogout }: { user: TrilobitUser; onLogout: () => void }) {
+  const { events, isLoaded: eventsLoaded, addEvent, updateEvent, deleteEvent } = useEvents();
+  const { programs, isLoaded: programsLoaded } = usePrograms();
+  const { achievements, isLoaded: achievementsLoaded, addAchievement, removeAchievement, getForChild } = useAchievements();
+
+  const [activePanel, setActivePanel] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState("");
+  const [allChildren, setAllChildren] = useState<Child[]>([]);
+  const [selectedChildId, setSelectedChildId] = useState<string | null>(null);
+  const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  // Achievement form
+  const [achForm, setAchForm] = useState({ childId: "", name: "", icon: "⭐", description: "" });
+  const availableIcons = ["⭐", "🔥", "🧭", "🌲", "🍳", "🪢", "🏆", "🎯", "🛡️", "⚡", "🌊", "🏕️", "🔨", "📐", "🎨"];
+
+  // Event form for quick add
+  const [eventForm, setEventForm] = useState({ title: "", date: "", time: "", duration: "", location: "", description: "", type: "regular" as CalEvent["type"] });
+
+  const showFeedback = (msg: string) => { setFeedback(msg); setTimeout(() => setFeedback(""), 2500); };
+
+  // Gather all children from all parents' localStorage keys
+  useEffect(() => {
+    const kids: Child[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith("trilobit_children_")) {
+        try {
+          const parsed: Child[] = JSON.parse(localStorage.getItem(key) ?? "[]");
+          const parentEmail = key.replace("trilobit_children_", "");
+          parsed.forEach((c) => kids.push({ ...c, parentEmail }));
+        } catch { /* skip */ }
+      }
+    }
+    setAllChildren(kids);
+  }, []);
+
+  const upcomingEvents = events
+    .filter((e) => new Date(e.date) >= new Date())
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  const pastEvents = events
+    .filter((e) => new Date(e.date) < new Date())
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 5);
+
+  const handleAddEvent = (e: React.FormEvent) => {
+    e.preventDefault();
+    addEvent({ title: eventForm.title, date: eventForm.date, time: eventForm.time, duration: eventForm.duration, location: eventForm.location, description: eventForm.description, type: eventForm.type });
+    setEventForm({ title: "", date: "", time: "", duration: "", location: "", description: "", type: "regular" });
+    showFeedback("Akce vytvořena!");
+  };
+
+  const handleAwardAchievement = (e: React.FormEvent) => {
+    e.preventDefault();
+    const child = allChildren.find((c) => c.id === achForm.childId);
+    if (!child) return;
+    addAchievement({ childId: achForm.childId, childName: child.name, name: achForm.name, icon: achForm.icon, description: achForm.description, awardedBy: user.name, awardedAt: new Date().toISOString().split("T")[0] });
+    setAchForm({ childId: "", name: "", icon: "⭐", description: "" });
+    showFeedback(`Odznak udělen: ${child.name}!`);
+  };
+
+  if (!eventsLoaded || !programsLoaded || !achievementsLoaded) {
+    return (
+      <section className="py-12 bg-stone-50 min-h-[80vh] flex items-center justify-center">
+        <div className="text-stone-400 text-lg">Načítání…</div>
+      </section>
+    );
+  }
+
+  const cards = [
+    { key: "children", title: "Děti v kmeni", description: `${allChildren.length} registrovaných dětí`, icon: Users, color: "bg-blue-50 border-blue-200", iconColor: "text-blue-600" },
+    { key: "add-event", title: "Přidat akci", description: "Vytvořit novou akci", icon: Plus, color: "bg-green-50 border-green-200", iconColor: "text-green-600" },
+    { key: "events", title: "Správa akcí", description: `${events.length} akcí celkem`, icon: Calendar, color: "bg-amber-50 border-amber-200", iconColor: "text-amber-600" },
+    { key: "achievements", title: "Udělit odznak", description: "Ocenit dítě za úspěch", icon: Award, color: "bg-purple-50 border-purple-200", iconColor: "text-purple-600" },
+    { key: "all-achievements", title: "Přehled odznaky", description: `${achievements.length} udělených`, icon: Trophy, color: "bg-amber-50 border-amber-200", iconColor: "text-amber-600" },
+    { key: "programs", title: "Programy", description: `${programs.length} aktivních`, icon: BookOpen, color: "bg-emerald-50 border-emerald-200", iconColor: "text-emerald-600" },
+  ];
+
+  return (
+    <section className="py-12 bg-stone-50 min-h-[80vh]">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Feedback toast */}
+        {feedback && (
+          <div className="fixed top-6 right-6 z-50 bg-green-600 text-white px-6 py-3 rounded-xl shadow-lg flex items-center gap-2 animate-pulse">
+            <Check className="w-5 h-5" />{feedback}
+          </div>
+        )}
+
+        {/* Header */}
+        <div className="mb-8 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 bg-purple-100 rounded-full flex items-center justify-center">
+              <Shield className="w-7 h-7 text-purple-700" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold text-stone-900">Vedoucí: {user.name}</h1>
+              <p className="text-lg text-stone-600">Dashboard vedoucího kmene</p>
+            </div>
+          </div>
+          <button onClick={onLogout} className="flex items-center gap-2 px-6 py-3 bg-white border border-stone-300 text-stone-700 rounded-lg hover:bg-stone-50 transition-colors">
+            <LogOut className="w-5 h-5" /><span className="font-medium">Odhlásit se</span>
+          </button>
+        </div>
+
+        {/* Stats */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <div className="bg-white rounded-xl p-5 border border-stone-200 text-center">
+            <Users className="w-6 h-6 text-blue-900 mx-auto mb-2" />
+            <p className="text-2xl font-bold text-stone-900">{allChildren.length}</p>
+            <p className="text-sm text-stone-500">Dětí v kmeni</p>
+          </div>
+          <div className="bg-white rounded-xl p-5 border border-stone-200 text-center">
+            <Calendar className="w-6 h-6 text-blue-900 mx-auto mb-2" />
+            <p className="text-2xl font-bold text-stone-900">{upcomingEvents.length}</p>
+            <p className="text-sm text-stone-500">Nadcházející akce</p>
+          </div>
+          <div className="bg-white rounded-xl p-5 border border-stone-200 text-center">
+            <Award className="w-6 h-6 text-amber-500 mx-auto mb-2" />
+            <p className="text-2xl font-bold text-stone-900">{achievements.length}</p>
+            <p className="text-sm text-stone-500">Odznaky uděleny</p>
+          </div>
+          <div className="bg-white rounded-xl p-5 border border-stone-200 text-center">
+            <BookOpen className="w-6 h-6 text-emerald-600 mx-auto mb-2" />
+            <p className="text-2xl font-bold text-stone-900">{programs.length}</p>
+            <p className="text-sm text-stone-500">Programů</p>
+          </div>
+        </div>
+
+        {/* Action Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
+          {cards.map((card) => (
+            <button
+              key={card.key}
+              onClick={() => setActivePanel(activePanel === card.key ? null : card.key)}
+              className={`${card.color} border rounded-xl p-5 text-left hover:shadow-lg transition-all hover:scale-[1.02] ${activePanel === card.key ? "ring-2 ring-blue-900 scale-[1.02]" : ""}`}
+            >
+              <card.icon className={`w-7 h-7 ${card.iconColor} mb-3`} />
+              <h3 className="font-semibold text-stone-900 mb-1">{card.title}</h3>
+              <p className="text-xs text-stone-600">{card.description}</p>
+            </button>
+          ))}
+        </div>
+
+        {/* ─── Children Panel ─── */}
+        {activePanel === "children" && (
+          <div className="mb-8 bg-white rounded-xl p-6 border border-stone-200">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-stone-900">Děti v kmeni ({allChildren.length})</h2>
+              <button onClick={() => setActivePanel(null)} className="p-2 hover:bg-stone-100 rounded-lg transition-colors"><X className="w-5 h-5 text-stone-500" /></button>
+            </div>
+            {allChildren.length === 0 ? (
+              <p className="text-stone-500 text-sm text-center py-6">Žádné registrované děti.</p>
+            ) : (
+              <div className="space-y-3">
+                {allChildren.map((child) => {
+                  const childAch = getForChild(child.id);
+                  const prog = programs.find((p) => p.id === child.programId);
+                  const isSelected = selectedChildId === child.id;
+                  return (
+                    <div key={child.id}>
+                      <button
+                        onClick={() => setSelectedChildId(isSelected ? null : child.id)}
+                        className={`w-full flex items-center gap-4 p-4 rounded-xl border transition-colors text-left ${isSelected ? "bg-blue-50 border-blue-200" : "bg-stone-50 border-stone-200 hover:border-blue-300"}`}
+                      >
+                        <div className="w-11 h-11 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+                          <span className="text-blue-900 font-bold text-lg">{child.avatar}</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold text-stone-900">{child.name}</h3>
+                          <p className="text-sm text-stone-600">{child.age} let · {child.programName}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {childAch.length > 0 && (
+                            <div className="flex -space-x-1">
+                              {childAch.slice(0, 3).map((a, i) => (
+                                <span key={i} className="text-sm" title={a.name}>{a.icon}</span>
+                              ))}
+                              {childAch.length > 3 && <span className="text-xs text-stone-400 ml-1">+{childAch.length - 3}</span>}
+                            </div>
+                          )}
+                          {isSelected ? <ChevronDown className="w-5 h-5 text-blue-900" /> : <ChevronRight className="w-5 h-5 text-stone-400" />}
+                        </div>
+                      </button>
+                      {isSelected && (
+                        <div className="mt-2 ml-4 p-4 bg-blue-50 rounded-xl border border-blue-200 space-y-4">
+                          {/* Child details */}
+                          <div className="grid grid-cols-2 gap-3 text-sm">
+                            <div><span className="text-stone-500">Program:</span> <Link href={`/programy?program=${child.programId}`} className="text-blue-900 hover:underline font-medium">{child.programName}</Link></div>
+                            <div><span className="text-stone-500">Rozvrh:</span> <span className="text-stone-900">{prog?.detail.schedule ?? "—"}</span></div>
+                            <div><span className="text-stone-500">Členem od:</span> <span className="text-stone-900">{child.since}</span></div>
+                            <div><span className="text-stone-500">Rodič:</span> <span className="text-stone-900">{child.parentEmail ?? "—"}</span></div>
+                          </div>
+                          {child.note && (
+                            <div className="p-3 bg-white rounded-lg border border-blue-200">
+                              <p className="text-xs font-medium text-blue-900 uppercase tracking-wider mb-1">Poznámka</p>
+                              <p className="text-sm text-stone-700">{child.note}</p>
+                            </div>
+                          )}
+                          {/* Child achievements */}
+                          <div>
+                            <p className="text-xs font-medium text-blue-900 uppercase tracking-wider mb-2">Odznaky ({childAch.length})</p>
+                            {childAch.length === 0 ? (
+                              <p className="text-xs text-stone-500">Zatím žádné odznaky.</p>
+                            ) : (
+                              <div className="flex flex-wrap gap-2">
+                                {childAch.map((a) => (
+                                  <div key={a.id} className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-full border border-amber-200 group">
+                                    <span>{a.icon}</span>
+                                    <span className="text-xs font-medium text-stone-900">{a.name}</span>
+                                    <button onClick={() => { removeAchievement(a.id); showFeedback("Odznak odebrán"); }} className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 ml-1 transition-opacity"><X className="w-3 h-3" /></button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          {/* Quick award */}
+                          <button
+                            onClick={() => { setAchForm({ childId: child.id, name: "", icon: "⭐", description: "" }); setActivePanel("achievements"); }}
+                            className="text-xs bg-purple-100 text-purple-800 px-3 py-1.5 rounded-full border border-purple-200 hover:bg-purple-200 transition-colors flex items-center gap-1"
+                          >
+                            <Award className="w-3 h-3" />Udělit odznak
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ─── Add Event Panel ─── */}
+        {activePanel === "add-event" && (
+          <div className="mb-8 bg-white rounded-xl p-6 border border-stone-200">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-stone-900">Nová akce</h2>
+              <button onClick={() => setActivePanel(null)} className="p-2 hover:bg-stone-100 rounded-lg transition-colors"><X className="w-5 h-5 text-stone-500" /></button>
+            </div>
+            <form onSubmit={handleAddEvent} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-stone-900 mb-1">Název *</label>
+                  <input type="text" required value={eventForm.title} onChange={(e) => setEventForm((p) => ({ ...p, title: e.target.value }))} className="w-full px-4 py-2.5 rounded-lg border border-stone-300 text-sm focus:border-blue-900 focus:ring-2 focus:ring-blue-900/20 outline-none" placeholder="Název akce" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-stone-900 mb-1">Typ *</label>
+                  <select required value={eventForm.type} onChange={(e) => setEventForm((p) => ({ ...p, type: e.target.value as CalEvent["type"] }))} className="w-full px-4 py-2.5 rounded-lg border border-stone-300 text-sm focus:border-blue-900 focus:ring-2 focus:ring-blue-900/20 outline-none">
+                    <option value="regular">Pravidelné setkání</option>
+                    <option value="expedition">Výprava</option>
+                    <option value="special">Speciální akce</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-stone-900 mb-1">Datum *</label>
+                  <input type="date" required value={eventForm.date} onChange={(e) => setEventForm((p) => ({ ...p, date: e.target.value }))} className="w-full px-4 py-2.5 rounded-lg border border-stone-300 text-sm focus:border-blue-900 focus:ring-2 focus:ring-blue-900/20 outline-none" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-stone-900 mb-1">Čas *</label>
+                  <input type="time" required value={eventForm.time} onChange={(e) => setEventForm((p) => ({ ...p, time: e.target.value }))} className="w-full px-4 py-2.5 rounded-lg border border-stone-300 text-sm focus:border-blue-900 focus:ring-2 focus:ring-blue-900/20 outline-none" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-stone-900 mb-1">Trvání *</label>
+                  <input type="text" required value={eventForm.duration} onChange={(e) => setEventForm((p) => ({ ...p, duration: e.target.value }))} className="w-full px-4 py-2.5 rounded-lg border border-stone-300 text-sm focus:border-blue-900 focus:ring-2 focus:ring-blue-900/20 outline-none" placeholder="např. 3 hodiny" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-stone-900 mb-1">Místo *</label>
+                  <input type="text" required value={eventForm.location} onChange={(e) => setEventForm((p) => ({ ...p, location: e.target.value }))} className="w-full px-4 py-2.5 rounded-lg border border-stone-300 text-sm focus:border-blue-900 focus:ring-2 focus:ring-blue-900/20 outline-none" placeholder="Choltice" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-stone-900 mb-1">Popis</label>
+                <textarea value={eventForm.description} onChange={(e) => setEventForm((p) => ({ ...p, description: e.target.value }))} rows={3} className="w-full px-4 py-2.5 rounded-lg border border-stone-300 text-sm focus:border-blue-900 focus:ring-2 focus:ring-blue-900/20 outline-none resize-none" placeholder="Popis akce…" />
+              </div>
+              <button type="submit" className="bg-blue-900 text-white px-6 py-2.5 rounded-lg font-medium hover:bg-blue-950 transition-colors">Vytvořit akci</button>
+            </form>
+          </div>
+        )}
+
+        {/* ─── Events Management Panel ─── */}
+        {activePanel === "events" && (
+          <div className="mb-8 bg-white rounded-xl p-6 border border-stone-200">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-stone-900">Správa akcí ({events.length})</h2>
+              <button onClick={() => setActivePanel(null)} className="p-2 hover:bg-stone-100 rounded-lg transition-colors"><X className="w-5 h-5 text-stone-500" /></button>
+            </div>
+            {upcomingEvents.length > 0 && (
+              <div className="mb-6">
+                <h3 className="text-sm font-medium text-stone-600 uppercase tracking-wider mb-3">Nadcházející ({upcomingEvents.length})</h3>
+                <div className="space-y-2">
+                  {upcomingEvents.map((event) => (
+                    <div key={event.id} className="flex items-center gap-4 p-3 bg-stone-50 rounded-lg border border-stone-200">
+                      <div className={`w-2 h-10 rounded-full ${event.type === "expedition" ? "bg-blue-500" : event.type === "special" ? "bg-amber-500" : "bg-emerald-500"}`} />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-stone-900 text-sm">{event.title}</p>
+                        <p className="text-xs text-stone-500">{new Date(event.date).toLocaleDateString("cs-CZ", { day: "numeric", month: "long" })} · {event.time} · {event.location}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {event.attendees && <span className="text-xs text-stone-500">{event.attendees.length} přihlášených</span>}
+                        {confirmDelete === event.id ? (
+                          <div className="flex gap-1">
+                            <button onClick={() => { deleteEvent(event.id); setConfirmDelete(null); showFeedback("Akce smazána"); }} className="text-xs bg-red-600 text-white px-2 py-1 rounded">Smazat</button>
+                            <button onClick={() => setConfirmDelete(null)} className="text-xs bg-stone-200 text-stone-700 px-2 py-1 rounded">Ne</button>
+                          </div>
+                        ) : (
+                          <button onClick={() => setConfirmDelete(event.id)} className="p-1.5 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"><Trash2 className="w-4 h-4" /></button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {pastEvents.length > 0 && (
+              <div>
+                <h3 className="text-sm font-medium text-stone-600 uppercase tracking-wider mb-3">Poslední proběhlé ({pastEvents.length})</h3>
+                <div className="space-y-2">
+                  {pastEvents.map((event) => (
+                    <div key={event.id} className="flex items-center gap-4 p-3 bg-stone-50 rounded-lg border border-stone-200 opacity-60">
+                      <div className={`w-2 h-10 rounded-full bg-stone-300`} />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-stone-900 text-sm">{event.title}</p>
+                        <p className="text-xs text-stone-500">{new Date(event.date).toLocaleDateString("cs-CZ", { day: "numeric", month: "long" })} · {event.location}</p>
+                      </div>
+                      {event.attendees && <span className="text-xs text-stone-500">{event.attendees.length} účastníků</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ─── Award Achievement Panel ─── */}
+        {activePanel === "achievements" && (
+          <div className="mb-8 bg-white rounded-xl p-6 border border-stone-200">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-stone-900">Udělit odznak</h2>
+              <button onClick={() => setActivePanel(null)} className="p-2 hover:bg-stone-100 rounded-lg transition-colors"><X className="w-5 h-5 text-stone-500" /></button>
+            </div>
+            <form onSubmit={handleAwardAchievement} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-stone-900 mb-1">Dítě *</label>
+                <select required value={achForm.childId} onChange={(e) => setAchForm((p) => ({ ...p, childId: e.target.value }))} className="w-full px-4 py-2.5 rounded-lg border border-stone-300 text-sm focus:border-blue-900 focus:ring-2 focus:ring-blue-900/20 outline-none">
+                  <option value="">Vyberte dítě…</option>
+                  {allChildren.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.programName})</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-stone-900 mb-1">Název odznaku *</label>
+                  <input type="text" required value={achForm.name} onChange={(e) => setAchForm((p) => ({ ...p, name: e.target.value }))} className="w-full px-4 py-2.5 rounded-lg border border-stone-300 text-sm focus:border-blue-900 focus:ring-2 focus:ring-blue-900/20 outline-none" placeholder="např. Ohňař, Navigátor…" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-stone-900 mb-1">Ikona</label>
+                  <div className="flex flex-wrap gap-2">
+                    {availableIcons.map((icon) => (
+                      <button key={icon} type="button" onClick={() => setAchForm((p) => ({ ...p, icon }))} className={`w-9 h-9 rounded-lg border text-lg flex items-center justify-center transition-all ${achForm.icon === icon ? "bg-amber-100 border-amber-400 ring-2 ring-amber-300 scale-110" : "bg-stone-50 border-stone-200 hover:bg-stone-100"}`}>
+                        {icon}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-stone-900 mb-1">Popis *</label>
+                <input type="text" required value={achForm.description} onChange={(e) => setAchForm((p) => ({ ...p, description: e.target.value }))} className="w-full px-4 py-2.5 rounded-lg border border-stone-300 text-sm focus:border-blue-900 focus:ring-2 focus:ring-blue-900/20 outline-none" placeholder="Za co dítě odznak získalo…" />
+              </div>
+              <button type="submit" className="bg-purple-700 text-white px-6 py-2.5 rounded-lg font-medium hover:bg-purple-800 transition-colors flex items-center gap-2"><Award className="w-5 h-5" />Udělit odznak</button>
+            </form>
+          </div>
+        )}
+
+        {/* ─── All Achievements Panel ─── */}
+        {activePanel === "all-achievements" && (
+          <div className="mb-8 bg-white rounded-xl p-6 border border-stone-200">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-stone-900">Všechny odznaky ({achievements.length})</h2>
+              <button onClick={() => setActivePanel(null)} className="p-2 hover:bg-stone-100 rounded-lg transition-colors"><X className="w-5 h-5 text-stone-500" /></button>
+            </div>
+            {achievements.length === 0 ? (
+              <p className="text-stone-500 text-sm text-center py-6">Zatím nebyly uděleny žádné odznaky.</p>
+            ) : (
+              <div className="space-y-2">
+                {achievements.sort((a, b) => b.awardedAt.localeCompare(a.awardedAt)).map((ach) => (
+                  <div key={ach.id} className="flex items-center gap-4 p-3 bg-stone-50 rounded-lg border border-stone-200 group">
+                    <span className="text-2xl">{ach.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-stone-900 text-sm">{ach.name} — <span className="text-blue-900">{ach.childName}</span></p>
+                      <p className="text-xs text-stone-500">{ach.description} · Udělil {ach.awardedBy} · {new Date(ach.awardedAt).toLocaleDateString("cs-CZ")}</p>
+                    </div>
+                    <button onClick={() => { removeAchievement(ach.id); showFeedback("Odznak odebrán"); }} className="opacity-0 group-hover:opacity-100 p-1.5 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded transition-all"><Trash2 className="w-4 h-4" /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ─── Programs Panel ─── */}
+        {activePanel === "programs" && (
+          <div className="mb-8 bg-white rounded-xl p-6 border border-stone-200">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-stone-900">Programy ({programs.length})</h2>
+              <button onClick={() => setActivePanel(null)} className="p-2 hover:bg-stone-100 rounded-lg transition-colors"><X className="w-5 h-5 text-stone-500" /></button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {programs.map((prog) => {
+                const kidsInProg = allChildren.filter((c) => c.programId === prog.id);
+                return (
+                  <Link key={prog.id} href={`/programy?program=${prog.id}`} className="p-5 bg-stone-50 rounded-xl border border-stone-200 hover:border-blue-300 hover:bg-blue-50/30 transition-colors block">
+                    <div className="flex items-start justify-between mb-3">
+                      <h3 className="font-semibold text-stone-900 text-lg">{prog.name}</h3>
+                      <span className="text-xs font-medium text-blue-900 bg-blue-50 px-2.5 py-1 rounded-full">{prog.age}</span>
+                    </div>
+                    <p className="text-sm text-stone-600 mb-3">{prog.description}</p>
+                    <div className="flex items-center gap-4 text-xs text-stone-500">
+                      <span className="flex items-center gap-1"><Users className="w-3 h-3" />{kidsInProg.length} dětí</span>
+                      <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{prog.detail.schedule}</span>
+                      <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{prog.location}</span>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </section>
   );
@@ -1425,7 +1994,7 @@ function AdminDashboard({ user, onLogout }: { user: TrilobitUser; onLogout: () =
           </div>
         )}
 
-        {/* Members Panel (replaces Galerie) */}
+        {/* Members Panel (replaces Galerie) — with role management */}
         {activePanel === "members" && (
           <div className="mt-8 bg-white rounded-xl p-6 border border-stone-200">
             <div className="flex items-center justify-between mb-6">
@@ -1440,20 +2009,55 @@ function AdminDashboard({ user, onLogout }: { user: TrilobitUser; onLogout: () =
               </div>
             ) : (
               <div className="space-y-3">
-                {members.map((member, i) => (
-                  <div key={i} className="flex items-center gap-4 p-4 bg-stone-50 rounded-xl border border-stone-200">
-                    <div className="w-10 h-10 bg-pink-100 rounded-full flex items-center justify-center flex-shrink-0">
-                      <span className="text-sm font-bold text-pink-700">{member.name.charAt(0).toUpperCase()}</span>
+                {members.map((member, i) => {
+                  const roleLabel = member.role === "leader" ? "Vedoucí" : member.role === "parent" ? "Rodič" : "Uživatel";
+                  const roleColors = member.role === "leader" ? "bg-purple-100 text-purple-800" : member.role === "parent" ? "bg-blue-100 text-blue-800" : "bg-green-100 text-green-800";
+                  return (
+                    <div key={i} className="flex items-center gap-4 p-4 bg-stone-50 rounded-xl border border-stone-200">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${member.role === "leader" ? "bg-purple-100" : "bg-pink-100"}`}>
+                        <span className={`text-sm font-bold ${member.role === "leader" ? "text-purple-700" : "text-pink-700"}`}>{member.name.charAt(0).toUpperCase()}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-stone-900">{member.name}</p>
+                        <p className="text-sm text-stone-600">{member.email}</p>
+                      </div>
+                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${roleColors}`}>
+                        {member.role === "leader" && <Shield className="w-3 h-3 inline mr-1" />}{roleLabel}
+                      </span>
+                      {member.role !== "leader" ? (
+                        <button
+                          onClick={() => {
+                            const raw = localStorage.getItem("trilobit_registered_users");
+                            if (!raw) return;
+                            const all: RegisteredUser[] = JSON.parse(raw);
+                            const updated = all.map((u) => u.email === member.email ? { ...u, role: "leader" as const } : u);
+                            localStorage.setItem("trilobit_registered_users", JSON.stringify(updated));
+                            setMembers(updated);
+                            showFeedback(`${member.name} je nyní vedoucí!`);
+                          }}
+                          className="text-xs text-purple-700 bg-purple-50 px-3 py-1.5 rounded-full border border-purple-200 hover:bg-purple-100 transition-colors flex items-center gap-1"
+                        >
+                          <Shield className="w-3 h-3" />Nastavit jako vedoucí
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            const raw = localStorage.getItem("trilobit_registered_users");
+                            if (!raw) return;
+                            const all: RegisteredUser[] = JSON.parse(raw);
+                            const updated = all.map((u) => u.email === member.email ? { ...u, role: "parent" as const } : u);
+                            localStorage.setItem("trilobit_registered_users", JSON.stringify(updated));
+                            setMembers(updated);
+                            showFeedback(`${member.name} je opět rodič`);
+                          }}
+                          className="text-xs text-stone-500 bg-stone-100 px-3 py-1.5 rounded-full border border-stone-200 hover:bg-stone-200 transition-colors"
+                        >
+                          Odebrat vedoucí
+                        </button>
+                      )}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-stone-900">{member.name}</p>
-                      <p className="text-sm text-stone-600">{member.email}</p>
-                    </div>
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${member.role === "parent" ? "bg-blue-100 text-blue-800" : "bg-green-100 text-green-800"}`}>
-                      {member.role === "parent" ? "Rodič" : "Uživatel"}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1616,6 +2220,8 @@ export default function AdminPage() {
           <LoginForm onLogin={(u) => setUser(u)} />
         ) : user.role === "admin" ? (
           <AdminDashboard user={user} onLogout={handleLogout} />
+        ) : user.role === "leader" ? (
+          <LeaderDashboard user={user} onLogout={handleLogout} />
         ) : user.role === "teen" ? (
           <TeenDashboard user={user} onLogout={handleLogout} />
         ) : (

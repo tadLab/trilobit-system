@@ -24,6 +24,18 @@ export interface Child {
   since: string; // e.g. "Září 2025"
   avatar: string; // single letter
   note: string;
+  parentEmail?: string; // tracks which parent owns this child
+}
+
+export interface Achievement {
+  id: string;
+  childId: string;
+  childName: string;
+  name: string;
+  icon: string; // emoji
+  description: string;
+  awardedBy: string; // leader name
+  awardedAt: string; // ISO date
 }
 
 export interface Program {
