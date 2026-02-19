@@ -6,6 +6,7 @@ import { Footer } from "@/components/Footer";
 import { SectionDivider } from "@/components/SectionDivider";
 import { Phone, Mail, MapPin, Send, ArrowRight, Calendar } from "lucide-react";
 import Link from "next/link";
+import { useCtaText } from "@/hooks/useCtaText";
 
 function ContactHero() {
   return (
@@ -156,7 +157,7 @@ function ContactFAQ() {
           ))}
         </div>
         <div className="text-center">
-          <Link href="/programy" className="text-blue-900 hover:text-blue-950 transition-colors inline-flex items-center gap-2 font-medium">
+          <Link href="/programy#faq" className="text-blue-900 hover:text-blue-950 transition-colors inline-flex items-center gap-2 font-medium">
             Zobrazit všechny FAQ<ArrowRight className="w-4 h-4" />
           </Link>
         </div>
@@ -166,13 +167,14 @@ function ContactFAQ() {
 }
 
 function ContactCTA() {
+  const ctaText = useCtaText();
   return (
     <section className="py-16 lg:py-24 bg-stone-50">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
         <h2 className="text-3xl lg:text-4xl text-stone-900 mb-6">Přidejte se k našemu kmenu</h2>
         <p className="text-xl text-stone-700 mb-10">Začněte dobrodružství vašeho dítěte v přírodě</p>
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          <Link href="/prihlasit" className="bg-blue-900 text-white px-8 py-4 rounded-full hover:bg-blue-950 transition-colors text-lg text-center">Přihlásit dítě</Link>
+          <Link href="/prihlasit" className="bg-blue-900 text-white px-8 py-4 rounded-full hover:bg-blue-950 transition-colors text-lg text-center">{ctaText}</Link>
           <Link href="/kalendar" className="bg-white text-stone-800 px-8 py-4 rounded-full border-2 border-stone-300 hover:border-blue-900 hover:text-blue-900 transition-colors text-lg flex items-center justify-center gap-2">
             <Calendar className="w-5 h-5" />Kalendář akcí
           </Link>

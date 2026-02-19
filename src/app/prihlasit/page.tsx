@@ -6,8 +6,10 @@ import { Footer } from "@/components/Footer";
 import { SectionDivider } from "@/components/SectionDivider";
 import { QuickContact } from "@/components/QuickContact";
 import { MapPin, Users, TreePine, Send, Phone, Mail } from "lucide-react";
+import { useCtaText } from "@/hooks/useCtaText";
 
 function SignUpHero() {
+  const ctaText = useCtaText();
   return (
     <section className="relative bg-gradient-to-b from-blue-50 to-white py-16 lg:py-20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -19,7 +21,7 @@ function SignUpHero() {
             </svg>
             <span className="text-blue-900 text-sm tracking-wider uppercase">Kmen Trilobit</span>
           </div>
-          <h1 className="text-4xl lg:text-5xl text-stone-900 mb-6">Přihlásit dítě</h1>
+          <h1 className="text-4xl lg:text-5xl text-stone-900 mb-6">{ctaText}</h1>
           <p className="text-xl text-stone-700 mb-8 leading-relaxed">
             Zanechte kontakt — ozveme se a domluvíme nejbližší vhodnou akci nebo program.
           </p>

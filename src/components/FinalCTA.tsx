@@ -1,7 +1,11 @@
+"use client";
+
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
+import { useCtaTextLong } from "@/hooks/useCtaText";
 
 export function FinalCTA() {
+  const ctaText = useCtaTextLong();
   return (
     <section className="py-16 lg:py-24 bg-white">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
@@ -18,7 +22,7 @@ export function FinalCTA() {
             href="/prihlasit"
             className="bg-blue-900 text-white px-8 py-4 rounded-full hover:bg-blue-950 transition-colors text-lg"
           >
-            Přihlásit dítě na první akci
+            {ctaText}
           </Link>
           <Link
             href="/kalendar"

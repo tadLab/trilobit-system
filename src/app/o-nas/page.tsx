@@ -1,12 +1,16 @@
+"use client";
+
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { SectionDivider } from "@/components/SectionDivider";
 import { QuickContact } from "@/components/QuickContact";
 import { Heart, Zap, Users, Target, Sparkles, Award, Shield, Phone, Camera, CheckCircle, Mail } from "lucide-react";
 import Link from "next/link";
+import { useCtaText } from "@/hooks/useCtaText";
 
 /* ── Hero ── */
 function AboutHero() {
+  const ctaText = useCtaText();
   return (
     <section className="relative bg-gradient-to-b from-blue-50 to-white py-16 lg:py-24">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -24,7 +28,7 @@ function AboutHero() {
             skrze skutečné zážitky venku.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/prihlasit" className="bg-blue-900 text-white px-8 py-4 rounded-full hover:bg-blue-950 transition-colors text-lg text-center">Přihlásit dítě</Link>
+            <Link href="/prihlasit" className="bg-blue-900 text-white px-8 py-4 rounded-full hover:bg-blue-950 transition-colors text-lg text-center">{ctaText}</Link>
             <Link href="/kontakt" className="bg-white text-stone-800 px-8 py-4 rounded-full border-2 border-stone-300 hover:border-blue-900 hover:text-blue-900 transition-colors text-lg flex items-center justify-center gap-2">
               <Mail className="w-5 h-5" />Kontakt
             </Link>
@@ -242,6 +246,7 @@ function PhotoStory() {
 
 /* ── About CTA ── */
 function AboutCTA() {
+  const ctaText = useCtaText();
   return (
     <section className="py-16 lg:py-24 bg-white">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
@@ -250,7 +255,7 @@ function AboutCTA() {
           Vaše dítě si najde kamarády, získá sebedůvěru a prožije nezapomenutelná dobrodružství v přírodě.
         </p>
         <div className="flex flex-col sm:flex-row gap-4 justify-center mb-10">
-          <Link href="/prihlasit" className="bg-blue-900 text-white px-8 py-4 rounded-full hover:bg-blue-950 transition-colors text-lg text-center">Přihlásit dítě</Link>
+          <Link href="/prihlasit" className="bg-blue-900 text-white px-8 py-4 rounded-full hover:bg-blue-950 transition-colors text-lg text-center">{ctaText}</Link>
           <Link href="/kontakt" className="bg-white text-stone-800 px-8 py-4 rounded-full border-2 border-stone-300 hover:border-blue-900 hover:text-blue-900 transition-colors text-lg flex items-center justify-center gap-2">
             <Mail className="w-5 h-5" />Kontakt
           </Link>

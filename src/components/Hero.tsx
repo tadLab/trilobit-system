@@ -1,7 +1,11 @@
+"use client";
+
 import { Calendar } from "lucide-react";
 import Link from "next/link";
+import { useCtaText } from "@/hooks/useCtaText";
 
 export function Hero() {
+  const ctaText = useCtaText();
   return (
     <section className="relative bg-stone-900 overflow-hidden">
       {/* Background Image */}
@@ -49,17 +53,12 @@ export function Hero() {
 
           {/* CTA Buttons */}
           <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex flex-col gap-2">
-              <Link
-                href="/prihlasit"
-                className="bg-blue-900 text-white px-8 py-4 rounded-full hover:bg-blue-950 transition-colors text-lg text-center"
-              >
-                Přihlásit dítě
-              </Link>
-              <span className="text-stone-400 text-sm text-center">
-                Odpovídáme do 24 hodin
-              </span>
-            </div>
+            <Link
+              href="/prihlasit"
+              className="bg-blue-900 text-white px-8 py-4 rounded-full hover:bg-blue-950 transition-colors text-lg text-center"
+            >
+              {ctaText}
+            </Link>
             <Link
               href="/kalendar"
               className="bg-white/10 backdrop-blur-sm text-white px-8 py-4 rounded-full border-2 border-white/30 hover:bg-white/20 transition-colors text-lg flex items-center justify-center gap-2"

@@ -4,18 +4,21 @@ import { Menu, X, User } from "lucide-react";
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useCtaText } from "@/hooks/useCtaText";
 
 const navLinks = [
   { href: "/", label: "Domů" },
   { href: "/programy", label: "Programy/Aktivity" },
   { href: "/kalendar", label: "Kalendář akcí" },
   { href: "/o-nas", label: "O nás" },
+  { href: "/jurta", label: "Jurta" },
   { href: "/kontakt", label: "Kontakt" },
 ];
 
 export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const pathname = usePathname();
+  const ctaText = useCtaText();
 
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -55,7 +58,7 @@ export function Header() {
               href="/prihlasit"
               className="bg-blue-900 text-white px-6 py-3 rounded-full hover:bg-blue-950 transition-colors"
             >
-              Přihlásit dítě
+              {ctaText}
             </Link>
             <Link
               href="/admin"
@@ -104,7 +107,7 @@ export function Header() {
                 onClick={() => setIsMenuOpen(false)}
                 className="bg-blue-900 text-white px-6 py-3 rounded-full hover:bg-blue-950 transition-colors text-center mt-2"
               >
-                Přihlásit dítě
+                {ctaText}
               </Link>
             </div>
           </nav>

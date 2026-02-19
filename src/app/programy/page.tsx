@@ -1,15 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { SectionDivider } from "@/components/SectionDivider";
 import { QuickContact } from "@/components/QuickContact";
-import { Calendar, X, ClipboardList, Send, CheckCircle2, ChevronDown, ChevronUp, Users, MapPin, Clock, CheckCircle, Info } from "lucide-react";
+import { Calendar, X, ClipboardList, Send, CheckCircle2, ChevronDown, ChevronUp, Users, MapPin, Clock, CheckCircle } from "lucide-react";
 import Link from "next/link";
+import { useCtaText } from "@/hooks/useCtaText";
+import { usePrograms } from "@/hooks/usePrograms";
+import type { Program } from "@/types/data";
 
 /* ── Hero ── */
 function ProgramsHero() {
+  const ctaText = useCtaText();
   return (
     <section className="relative bg-gradient-to-b from-blue-50 to-white py-16 lg:py-24">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -27,7 +31,7 @@ function ProgramsHero() {
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/prihlasit" className="bg-blue-900 text-white px-8 py-4 rounded-full hover:bg-blue-950 transition-colors text-lg text-center">
-              Přihlásit dítě
+              {ctaText}
             </Link>
             <Link href="/kalendar" className="bg-white text-stone-800 px-8 py-4 rounded-full border-2 border-stone-300 hover:border-blue-900 hover:text-blue-900 transition-colors text-lg flex items-center justify-center gap-2">
               <Calendar className="w-5 h-5" />
@@ -91,38 +95,35 @@ function FilterGroup({ label, items, selected, onToggle }: { label: string; item
 }
 
 /* ── Program Cards ── */
-const programs = [
-  {
-    name: "Malý kmen", age: "6–8 let", type: "Pravidelné", season: "Celý rok",
-    description: "Vaše dítě získá první zkušenosti v přírodě, kamarády a radost z pohybu venku.",
-    location: "Choltice", frequency: "Každý týden", duration: "2 hodiny",
-    whatKidsDo: ["Hry a aktivity v přírodě", "Základní outdoorové dovednosti", "Týmová spolupráce a kamarádství"],
-    forParents: ["Sraz vždy v centru Choltic", "Dítě potřebuje outdoorové oblečení + láhev na pití"],
-  },
-  {
-    name: "Velký kmen", age: "9–12 let", type: "Pravidelné", season: "Celý rok",
-    description: "Pokročilejší aktivity, samostatnost a výzvy. Dítě posílí sebedůvěru a získá praktické dovednosti.",
-    location: "Choltice a okolí", frequency: "Každý týden", duration: "3 hodiny",
-    whatKidsDo: ["Orientace v terénu a stopování", "Stavba přístřešků a táborová řemesla", "Náročnější výpravy a expedice"],
-    forParents: ["Děti jsou pod dohledem zkušených vedoucích", "Fotky z akcí posíláme rodičům"],
-  },
-  {
-    name: "Víkendové výpravy", age: "6–12 let", type: "Výpravy", season: "Jaro/Léto/Podzim",
-    description: "Celodenní dobrodružství v přírodě. Dítě pozná nová místa a zažije skutečnou expedici.",
-    location: "Region Pardubicka", frequency: "1× měsíčně", duration: "Celý den",
-    whatKidsDo: ["Túry do zajímavých přírodních lokalit", "Poznávání přírody a historie", "Táborové ohně a společné aktivity"],
-    forParents: ["Svačina a oběd zajištěn", "Doprava zajištěna z Choltic"],
-  },
-  {
-    name: "Letní tábor", age: "6–12 let", type: "Speciální akce", season: "Léto",
-    description: "Týdenní pobyt v přírodě plný her, výzev a nezapomenutelných zážitků.",
-    location: "Tábořiště v okolí Choltic", frequency: "Červenec/Srpen", duration: "5–7 dní",
-    whatKidsDo: ["Stanování a táborový život", "Velké hry a dobrodružné úkoly", "Nové kamarádství a týmový duch"],
-    forParents: ["Kapacita omezena na 30 dětí", "Registrace od března"],
-  },
-];
 
-function ProgramCards({ selectedAge, selectedType, selectedSeason }: { selectedAge: string | null; selectedType: string | null; selectedSeason: string | null }) {
+function ProgramCards({ programs, selectedAge, selectedType, selectedSeason }: { programs: Program[]; selectedAge: string | null; selectedType: string | null; selectedSeason: string | null }) {
+  const ctaText = useCtaText();
+  const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+  const cardRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+
+  const handleToggle = useCallback((index: number) => {
+    if (expandedIndex === index) {
+      // Closing: scroll to card top so the page doesn't jump
+      const card = cardRefs.current.get(index);
+      if (card) {
+        const rect = card.getBoundingClientRect();
+        if (rect.top < 0) {
+          card.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }
+      setExpandedIndex(null);
+    } else {
+      setExpandedIndex(index);
+      // After expanding, scroll the newly opened card into view
+      requestAnimationFrame(() => {
+        const card = cardRefs.current.get(index);
+        if (card) {
+          card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+      });
+    }
+  }, [expandedIndex]);
+
   const filtered = programs.filter((p) => {
     if (selectedAge && p.age !== selectedAge) return false;
     if (selectedType && p.type !== selectedType) return false;
@@ -139,8 +140,15 @@ function ProgramCards({ selectedAge, selectedType, selectedSeason }: { selectedA
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {filtered.map((program, index) => (
-              <div key={index} className="bg-white rounded-2xl p-8 border border-stone-200 hover:border-blue-900 transition-all hover:shadow-lg">
+            {filtered.map((program, index) => {
+              const isExpanded = expandedIndex === index;
+
+              return (
+              <div
+                key={index}
+                ref={(el) => { if (el) cardRefs.current.set(index, el); }}
+                className={`bg-white rounded-2xl p-8 border transition-all ${isExpanded ? "lg:col-span-2 border-blue-900 shadow-lg" : "border-stone-200 hover:border-blue-900 hover:shadow-lg"}`}
+              >
                 <div className="mb-6">
                   <div className="flex items-start justify-between mb-3">
                     <h3 className="text-2xl font-bold text-stone-900">{program.name}</h3>
@@ -152,7 +160,7 @@ function ProgramCards({ selectedAge, selectedType, selectedSeason }: { selectedA
                   <div className="flex items-center gap-2 text-sm text-stone-600"><MapPin className="w-4 h-4 text-blue-900" /><span>{program.location}</span></div>
                   <div className="flex items-center gap-2 text-sm text-stone-600"><Calendar className="w-4 h-4 text-blue-900" /><span>{program.frequency}</span></div>
                   <div className="flex items-center gap-2 text-sm text-stone-600"><Clock className="w-4 h-4 text-blue-900" /><span>{program.duration}</span></div>
-                  <div className="flex items-center gap-2 text-sm text-stone-600"><Users className="w-4 h-4 text-blue-900" /><span>Pro děti</span></div>
+                  <div className="flex items-center gap-2 text-sm text-stone-600"><Users className="w-4 h-4 text-blue-900" /><span>Max. {program.detail.maxKids} dětí</span></div>
                 </div>
                 <div className="mb-6">
                   <h4 className="text-sm font-semibold text-stone-900 mb-3">Co děti dělají:</h4>
@@ -170,14 +178,80 @@ function ProgramCards({ selectedAge, selectedType, selectedSeason }: { selectedA
                     {program.forParents.map((item, i) => (<li key={i} className="text-sm text-stone-700">&bull; {item}</li>))}
                   </ul>
                 </div>
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <Link href="/prihlasit" className="flex-1 bg-blue-900 text-white px-6 py-3 rounded-full hover:bg-blue-950 transition-colors font-medium text-center">Přihlásit dítě</Link>
-                  <button className="flex-1 bg-white text-stone-700 px-6 py-3 rounded-full border-2 border-stone-300 hover:border-blue-900 hover:text-blue-900 transition-colors font-medium flex items-center justify-center gap-2">
-                    <Info className="w-4 h-4" />Více info
+
+                {/* Expandable detail section */}
+                {isExpanded && (
+                  <div className="mb-6 space-y-5 border-t border-stone-200 pt-6">
+                    {/* Schedule & Price */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <div className="p-4 bg-stone-50 rounded-xl border border-stone-200">
+                        <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-1">Kdy</p>
+                        <p className="text-sm font-medium text-stone-900">{program.detail.schedule}</p>
+                      </div>
+                      <div className="p-4 bg-stone-50 rounded-xl border border-stone-200">
+                        <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-1">Cena</p>
+                        <p className="text-sm font-medium text-stone-900">{program.detail.price}</p>
+                      </div>
+                      <div className="p-4 bg-stone-50 rounded-xl border border-stone-200 flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                          <Users className="w-5 h-5 text-blue-900" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider">Vedení</p>
+                          <p className="text-sm text-stone-900">{program.detail.leader}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Typical day */}
+                    <div>
+                      <h4 className="text-sm font-semibold text-stone-900 mb-2">Jak vypadá typický den:</h4>
+                      <p className="text-sm text-stone-700 leading-relaxed p-4 bg-amber-50 rounded-xl border border-amber-200">{program.detail.typicalDay}</p>
+                    </div>
+
+                    {/* Goals */}
+                    <div>
+                      <h4 className="text-sm font-semibold text-stone-900 mb-3">Cíle programu:</h4>
+                      <ul className="space-y-2">
+                        {program.detail.goals.map((goal, i) => (
+                          <li key={i} className="flex items-start gap-2 text-sm text-stone-700">
+                            <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" /><span>{goal}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    {/* What to bring */}
+                    <div>
+                      <h4 className="text-sm font-semibold text-stone-900 mb-3">Co s sebou:</h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                        {program.detail.whatToBring.map((item, i) => (
+                          <div key={i} className="flex items-center gap-2 text-sm text-stone-700 p-2 bg-stone-50 rounded-lg border border-stone-100">
+                            <span className="text-blue-900">•</span>{item}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className={`flex flex-col sm:flex-row gap-3 ${isExpanded ? "max-w-md" : ""}`}>
+                  <Link href="/prihlasit" className="flex-1 bg-blue-900 text-white px-6 py-3 rounded-full hover:bg-blue-950 transition-colors font-medium text-center">{ctaText}</Link>
+                  <button
+                    onClick={() => handleToggle(index)}
+                    className={`flex-1 px-6 py-3 rounded-full border-2 transition-colors font-medium flex items-center justify-center gap-2 ${
+                      isExpanded
+                        ? "bg-blue-50 text-blue-900 border-blue-900"
+                        : "bg-white text-stone-700 border-stone-300 hover:border-blue-900 hover:text-blue-900"
+                    }`}
+                  >
+                    <ChevronDown className={`w-4 h-4 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                    {isExpanded ? "Skrýt detail" : "Více info"}
                   </button>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -234,7 +308,7 @@ function ProgramFAQ() {
   ];
 
   return (
-    <section className="py-16 lg:py-24 bg-stone-50">
+    <section id="faq" className="py-16 lg:py-24 bg-stone-50 scroll-mt-24">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-12">
           <h2 className="text-3xl lg:text-4xl text-stone-900 mb-4">Časté otázky</h2>
@@ -260,13 +334,14 @@ function ProgramFAQ() {
 
 /* ── CTA ── */
 function ProgramCTA() {
+  const ctaText = useCtaText();
   return (
     <section className="py-16 lg:py-24 bg-white">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
         <h2 className="text-3xl lg:text-4xl text-stone-900 mb-6">Vyberte program a přidejte se</h2>
         <p className="text-xl text-stone-700 mb-10">Nabízíme zkušební účast zdarma. Žádné závazky, stačí přijít a vyzkoušet.</p>
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          <Link href="/prihlasit" className="bg-blue-900 text-white px-8 py-4 rounded-full hover:bg-blue-950 transition-colors text-lg text-center">Přihlásit dítě</Link>
+          <Link href="/prihlasit" className="bg-blue-900 text-white px-8 py-4 rounded-full hover:bg-blue-950 transition-colors text-lg text-center">{ctaText}</Link>
           <Link href="/kalendar" className="bg-white text-stone-800 px-8 py-4 rounded-full border-2 border-stone-300 hover:border-blue-900 hover:text-blue-900 transition-colors text-lg flex items-center justify-center gap-2">
             <Calendar className="w-5 h-5" />Kalendář akcí
           </Link>
@@ -278,9 +353,22 @@ function ProgramCTA() {
 
 /* ── Page ── */
 export default function ProgramyPage() {
+  const { programs, isLoaded } = usePrograms();
   const [selectedAge, setSelectedAge] = useState<string | null>(null);
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const [selectedSeason, setSelectedSeason] = useState<string | null>(null);
+
+  if (!isLoaded) {
+    return (
+      <div className="min-h-screen bg-white">
+        <Header />
+        <main className="flex items-center justify-center py-32">
+          <div className="text-stone-400 text-lg">Načítání programů…</div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-white">
@@ -291,7 +379,7 @@ export default function ProgramyPage() {
           selectedAge={selectedAge} selectedType={selectedType} selectedSeason={selectedSeason}
           onAgeChange={setSelectedAge} onTypeChange={setSelectedType} onSeasonChange={setSelectedSeason}
         />
-        <ProgramCards selectedAge={selectedAge} selectedType={selectedType} selectedSeason={selectedSeason} />
+        <ProgramCards programs={programs} selectedAge={selectedAge} selectedType={selectedType} selectedSeason={selectedSeason} />
         <SectionDivider />
         <HowItWorks />
         <SectionDivider />
