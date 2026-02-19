@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect, Suspense } from "react";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { SectionDivider } from "@/components/SectionDivider";
 import { QuickContact } from "@/components/QuickContact";
 import { Calendar, X, ClipboardList, Send, CheckCircle2, ChevronDown, ChevronUp, Users, MapPin, Clock, CheckCircle } from "lucide-react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCtaText } from "@/hooks/useCtaText";
 import { usePrograms } from "@/hooks/usePrograms";
 import type { Program } from "@/types/data";
@@ -96,10 +97,35 @@ function FilterGroup({ label, items, selected, onToggle }: { label: string; item
 
 /* ── Program Cards ── */
 
-function ProgramCards({ programs, selectedAge, selectedType, selectedSeason }: { programs: Program[]; selectedAge: string | null; selectedType: string | null; selectedSeason: string | null }) {
+function ProgramCards({ programs, selectedAge, selectedType, selectedSeason, initialProgramId }: { programs: Program[]; selectedAge: string | null; selectedType: string | null; selectedSeason: string | null; initialProgramId?: string | null }) {
   const ctaText = useCtaText();
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const cardRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const hasAutoExpanded = useRef(false);
+
+  // Deep-link: auto-expand a program by ID from URL query param
+  const filtered = programs.filter((p) => {
+    if (selectedAge && p.age !== selectedAge) return false;
+    if (selectedType && p.type !== selectedType) return false;
+    if (selectedSeason && !p.season.includes(selectedSeason)) return false;
+    return true;
+  });
+
+  useEffect(() => {
+    if (initialProgramId && !hasAutoExpanded.current && filtered.length > 0) {
+      const idx = filtered.findIndex((p) => p.id === initialProgramId);
+      if (idx !== -1) {
+        setExpandedIndex(idx);
+        hasAutoExpanded.current = true;
+        requestAnimationFrame(() => {
+          const card = cardRefs.current.get(idx);
+          if (card) {
+            card.scrollIntoView({ behavior: "smooth", block: "start" });
+          }
+        });
+      }
+    }
+  }, [initialProgramId, filtered]);
 
   const handleToggle = useCallback((index: number) => {
     if (expandedIndex === index) {
@@ -123,13 +149,6 @@ function ProgramCards({ programs, selectedAge, selectedType, selectedSeason }: {
       });
     }
   }, [expandedIndex]);
-
-  const filtered = programs.filter((p) => {
-    if (selectedAge && p.age !== selectedAge) return false;
-    if (selectedType && p.type !== selectedType) return false;
-    if (selectedSeason && !p.season.includes(selectedSeason)) return false;
-    return true;
-  });
 
   return (
     <section className="py-16 lg:py-24 bg-stone-50">
@@ -351,9 +370,11 @@ function ProgramCTA() {
   );
 }
 
-/* ── Page ── */
-export default function ProgramyPage() {
+/* ── Inner page (uses useSearchParams which requires Suspense) ── */
+function ProgramyPageInner() {
   const { programs, isLoaded } = usePrograms();
+  const searchParams = useSearchParams();
+  const initialProgramId = searchParams.get("program");
   const [selectedAge, setSelectedAge] = useState<string | null>(null);
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const [selectedSeason, setSelectedSeason] = useState<string | null>(null);
@@ -379,7 +400,7 @@ export default function ProgramyPage() {
           selectedAge={selectedAge} selectedType={selectedType} selectedSeason={selectedSeason}
           onAgeChange={setSelectedAge} onTypeChange={setSelectedType} onSeasonChange={setSelectedSeason}
         />
-        <ProgramCards programs={programs} selectedAge={selectedAge} selectedType={selectedType} selectedSeason={selectedSeason} />
+        <ProgramCards programs={programs} selectedAge={selectedAge} selectedType={selectedType} selectedSeason={selectedSeason} initialProgramId={initialProgramId} />
         <SectionDivider />
         <HowItWorks />
         <SectionDivider />
@@ -389,5 +410,22 @@ export default function ProgramyPage() {
       </main>
       <Footer />
     </div>
+  );
+}
+
+/* ── Page ── */
+export default function ProgramyPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-white">
+        <Header />
+        <main className="flex items-center justify-center py-32">
+          <div className="text-stone-400 text-lg">Načítání programů…</div>
+        </main>
+        <Footer />
+      </div>
+    }>
+      <ProgramyPageInner />
+    </Suspense>
   );
 }

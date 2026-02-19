@@ -15,6 +15,17 @@ export interface CalEvent {
   photoAlbumUrl?: string;
 }
 
+export interface Child {
+  id: string;
+  name: string;
+  age: number;
+  programId: string; // references Program.id
+  programName: string; // denormalized for quick display
+  since: string; // e.g. "Září 2025"
+  avatar: string; // single letter
+  note: string;
+}
+
 export interface Program {
   id: string;
   name: string;

@@ -5,12 +5,13 @@ import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import {
   Calendar, FileText, Users, Settings, LogOut, Plus, Pencil, Mail, BarChart, Lock, User, AlertCircle,
-  MapPin, Clock, ChevronRight, ChevronDown, BookOpen, Flame, Trophy, Star, TreePine, Compass, X, Check, Trash2,
+  MapPin, Clock, ChevronRight, ChevronDown, BookOpen, Flame, Trophy, Star, TreePine, Compass, X, Check, Trash2, Save,
 } from "lucide-react";
 import Link from "next/link";
 import { useEvents } from "@/hooks/useEvents";
 import { usePrograms } from "@/hooks/usePrograms";
-import type { CalEvent, Program } from "@/types/data";
+import { useChildren } from "@/hooks/useChildren";
+import type { CalEvent, Program, Child } from "@/types/data";
 
 /* ── Types ── */
 interface TrilobitUser {
@@ -28,22 +29,7 @@ interface RegisteredUser {
 
 type AuthMode = "login" | "register";
 
-/* ── Mock Data for Parent Dashboard ── */
-const mockChildren = [
-  { id: "1", name: "Tomáš Novák", age: 8, program: "Malý kmen", since: "Září 2025", avatar: "T", note: "Alergický na ořechy. Rád staví přístřešky a leze po skalách." },
-  { id: "2", name: "Eliška Nováková", age: 11, program: "Velký kmen", since: "Leden 2026", avatar: "E", note: "Zkušená tábornice. Pomáhá mladším dětem." },
-];
-
-const mockRegisteredPrograms = [
-  { id: "1", name: "Malý kmen", child: "Tomáš Novák", day: "Středa", time: "15:00", location: "Choltice" },
-  { id: "2", name: "Velký kmen", child: "Eliška Nováková", day: "Pátek", time: "15:00", location: "Choltice a okolí" },
-];
-
-const mockUpcomingEventsParent = [
-  { id: "1", title: "Malý kmen — týdenní setkání", date: "18. března 2026", time: "15:00", location: "Choltice", child: "Tomáš Novák", poster: null, attendees: [{ name: "Tomáš N.", avatar: "T" }, { name: "Jakub K.", avatar: "J" }, { name: "Aneta V.", avatar: "A" }, { name: "Sofie H.", avatar: "S" }] },
-  { id: "2", title: "Velký kmen — týdenní setkání", date: "20. března 2026", time: "15:00", location: "Choltice a okolí", child: "Eliška Nováková", poster: null, attendees: [{ name: "Eliška N.", avatar: "E" }, { name: "Marek P.", avatar: "M" }, { name: "Adam R.", avatar: "A" }, { name: "Lucie D.", avatar: "L" }, { name: "Petr S.", avatar: "P" }] },
-  { id: "3", title: "Jarní výprava do Poodří", date: "15. března 2026", time: "9:00", location: "Poodří", child: "Tomáš Novák, Eliška Nováková", poster: "https://images.unsplash.com/photo-1476611338391-6f395a0ebc7b?w=1200&h=675&fit=crop", attendees: [{ name: "Tomáš N.", avatar: "T" }, { name: "Eliška N.", avatar: "E" }, { name: "Jakub K.", avatar: "J" }, { name: "Aneta V.", avatar: "A" }, { name: "Marek P.", avatar: "M" }, { name: "Sofie H.", avatar: "S" }, { name: "Adam R.", avatar: "A" }] },
-];
+/* ── (mock data removed — children now come from useChildren hook) ── */
 
 /* ── Login Form ── */
 function LoginForm({ onLogin }: { onLogin: (user: TrilobitUser) => void }) {
@@ -274,28 +260,106 @@ function LoginForm({ onLogin }: { onLogin: (user: TrilobitUser) => void }) {
 
 /* ── Parent Dashboard ── */
 function ParentDashboard({ user, onLogout }: { user: TrilobitUser; onLogout: () => void }) {
+  const { children, isLoaded: childrenLoaded, addChild, updateChild, deleteChild } = useChildren(user.email);
+  const { programs, isLoaded: programsLoaded } = usePrograms();
+  const { events: allEvents, isLoaded: eventsLoaded } = useEvents();
+
   const [expandedChild, setExpandedChild] = useState<string | null>(null);
   const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
+  const [showAddChild, setShowAddChild] = useState(false);
+  const [editingChild, setEditingChild] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsForm, setSettingsForm] = useState({ name: user.name, email: user.email, phone: "602 801 010" });
   const [settingsSaved, setSettingsSaved] = useState(false);
+  const [feedback, setFeedback] = useState("");
 
-  const toggleChild = (id: string) => {
-    setExpandedChild((prev) => (prev === id ? null : id));
+  // New child form state
+  const emptyChildForm = { name: "", age: "", programId: "", note: "" };
+  const [childForm, setChildForm] = useState(emptyChildForm);
+
+  // Edit child form state
+  const [editForm, setEditForm] = useState<{ name: string; age: string; programId: string; note: string }>({ name: "", age: "", programId: "", note: "" });
+
+  const showFeedback = (msg: string) => { setFeedback(msg); setTimeout(() => setFeedback(""), 2500); };
+
+  // Derive "registered programs" from children's programIds
+  const registeredPrograms = children.map((child) => {
+    const prog = programs.find((p) => p.id === child.programId);
+    return { childName: child.name, programId: child.programId, programName: child.programName, schedule: prog?.detail.schedule ?? "", location: prog?.location ?? "" };
+  });
+
+  // Upcoming events — future events from the shared data layer, sorted
+  const upcomingEvents = allEvents
+    .filter((e) => new Date(e.date) >= new Date())
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    .slice(0, 5);
+
+  const toggleChild = (id: string) => setExpandedChild((prev) => (prev === id ? null : id));
+  const toggleEvent = (id: string) => setExpandedEvent((prev) => (prev === id ? null : id));
+  const handleSaveSettings = () => { setSettingsSaved(true); setTimeout(() => setSettingsSaved(false), 2500); };
+
+  const handleAddChild = (e: React.FormEvent) => {
+    e.preventDefault();
+    const prog = programs.find((p) => p.id === childForm.programId);
+    addChild({
+      name: childForm.name,
+      age: Number(childForm.age),
+      programId: childForm.programId,
+      programName: prog?.name ?? "—",
+      since: new Date().toLocaleDateString("cs-CZ", { month: "long", year: "numeric" }).replace(/^./, (c) => c.toUpperCase()),
+      avatar: childForm.name.charAt(0).toUpperCase(),
+      note: childForm.note,
+    });
+    setChildForm(emptyChildForm);
+    setShowAddChild(false);
+    showFeedback("Dítě přidáno!");
   };
 
-  const toggleEvent = (id: string) => {
-    setExpandedEvent((prev) => (prev === id ? null : id));
+  const startEdit = (child: Child) => {
+    setEditingChild(child.id);
+    setEditForm({ name: child.name, age: String(child.age), programId: child.programId, note: child.note });
+    setExpandedChild(child.id);
   };
 
-  const handleSaveSettings = () => {
-    setSettingsSaved(true);
-    setTimeout(() => setSettingsSaved(false), 2500);
+  const handleSaveEdit = (id: string) => {
+    const prog = programs.find((p) => p.id === editForm.programId);
+    updateChild(id, {
+      name: editForm.name,
+      age: Number(editForm.age),
+      programId: editForm.programId,
+      programName: prog?.name ?? "—",
+      avatar: editForm.name.charAt(0).toUpperCase(),
+      note: editForm.note,
+    });
+    setEditingChild(null);
+    showFeedback("Změny uloženy!");
   };
+
+  const handleDeleteChild = (id: string, name: string) => {
+    if (confirm(`Opravdu chcete odebrat ${name}?`)) {
+      deleteChild(id);
+      showFeedback(`${name} odebrán/a`);
+    }
+  };
+
+  if (!childrenLoaded || !programsLoaded || !eventsLoaded) {
+    return (
+      <section className="py-12 bg-stone-50 min-h-[80vh] flex items-center justify-center">
+        <div className="text-stone-400 text-lg">Načítání…</div>
+      </section>
+    );
+  }
 
   return (
     <section className="py-12 bg-stone-50 min-h-[80vh]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Feedback toast */}
+        {feedback && (
+          <div className="fixed top-6 right-6 z-50 bg-green-600 text-white px-6 py-3 rounded-xl shadow-lg flex items-center gap-2 animate-pulse">
+            <Check className="w-5 h-5" />{feedback}
+          </div>
+        )}
+
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">
           <div>
@@ -311,18 +375,18 @@ function ParentDashboard({ user, onLogout }: { user: TrilobitUser; onLogout: () 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <div className="bg-white rounded-xl p-6 border border-stone-200">
             <div className="flex items-center justify-between mb-2"><h3 className="text-sm font-medium text-stone-600">Moje děti</h3><Users className="w-5 h-5 text-blue-900" /></div>
-            <p className="text-3xl font-bold text-stone-900">{mockChildren.length}</p>
+            <p className="text-3xl font-bold text-stone-900">{children.length}</p>
             <p className="text-sm text-stone-500 mt-1">Registrované v kmeni</p>
           </div>
           <div className="bg-white rounded-xl p-6 border border-stone-200">
             <div className="flex items-center justify-between mb-2"><h3 className="text-sm font-medium text-stone-600">Aktivní programy</h3><BookOpen className="w-5 h-5 text-blue-900" /></div>
-            <p className="text-3xl font-bold text-stone-900">{mockRegisteredPrograms.length}</p>
-            <p className="text-sm text-stone-500 mt-1">{mockRegisteredPrograms.map((p) => p.name).join(", ")}</p>
+            <p className="text-3xl font-bold text-stone-900">{new Set(children.map((c) => c.programId)).size}</p>
+            <p className="text-sm text-stone-500 mt-1">{[...new Set(children.map((c) => c.programName))].join(", ") || "—"}</p>
           </div>
           <div className="bg-white rounded-xl p-6 border border-stone-200">
             <div className="flex items-center justify-between mb-2"><h3 className="text-sm font-medium text-stone-600">Nadcházející akce</h3><Calendar className="w-5 h-5 text-blue-900" /></div>
-            <p className="text-3xl font-bold text-stone-900">{mockUpcomingEventsParent.length}</p>
-            <p className="text-sm text-stone-500 mt-1">V následujících 14 dnech</p>
+            <p className="text-3xl font-bold text-stone-900">{upcomingEvents.length}</p>
+            <p className="text-sm text-stone-500 mt-1">Nejbližší akce</p>
           </div>
         </div>
 
@@ -332,59 +396,138 @@ function ParentDashboard({ user, onLogout }: { user: TrilobitUser; onLogout: () 
           <div className="bg-white rounded-xl p-6 border border-stone-200">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold text-stone-900">Moje děti</h2>
-              <Link href="/prihlasit" className="text-sm text-blue-900 hover:text-blue-950 font-medium flex items-center gap-1">
-                Přidat dítě<ChevronRight className="w-4 h-4" />
-              </Link>
+              <button
+                onClick={() => { setShowAddChild(!showAddChild); setChildForm(emptyChildForm); }}
+                className="text-sm text-blue-900 hover:text-blue-950 font-medium flex items-center gap-1"
+              >
+                <Plus className="w-4 h-4" />Přidat dítě
+              </button>
             </div>
-            <div className="space-y-4">
-              {mockChildren.map((child) => (
-                <div key={child.id}>
-                  <button
-                    onClick={() => toggleChild(child.id)}
-                    className="w-full flex items-center gap-4 p-4 bg-stone-50 rounded-xl border border-stone-200 hover:border-blue-300 hover:bg-blue-50/30 transition-colors text-left"
-                  >
-                    <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-                      <span className="text-blue-900 font-bold text-lg">{child.avatar}</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-stone-900">{child.name}</h3>
-                      <p className="text-sm text-stone-600">{child.age} let &bull; {child.program}</p>
-                      <p className="text-xs text-stone-500">Členem od {child.since}</p>
-                    </div>
-                    {expandedChild === child.id ? (
-                      <ChevronDown className="w-5 h-5 text-blue-900 flex-shrink-0" />
-                    ) : (
-                      <ChevronRight className="w-5 h-5 text-stone-400 flex-shrink-0" />
-                    )}
-                  </button>
-                  {expandedChild === child.id && (
-                    <div className="mt-2 ml-4 p-4 bg-blue-50 rounded-xl border border-blue-200 space-y-3">
-                      <div>
-                        <p className="text-xs font-medium text-blue-900 uppercase tracking-wider mb-1">Poznámka</p>
-                        <p className="text-sm text-stone-700">{child.note}</p>
-                      </div>
-                      <div className="flex gap-2">
-                        <Link
-                          href="/programy"
-                          className="text-xs bg-white text-blue-900 px-3 py-1.5 rounded-full border border-blue-200 hover:bg-blue-100 transition-colors"
-                        >
-                          Zobrazit program
-                        </Link>
-                        <Link
-                          href="/kalendar"
-                          className="text-xs bg-white text-blue-900 px-3 py-1.5 rounded-full border border-blue-200 hover:bg-blue-100 transition-colors"
-                        >
-                          Kalendář akcí
-                        </Link>
-                      </div>
-                    </div>
-                  )}
+
+            {/* Inline Add Child Form */}
+            {showAddChild && (
+              <form onSubmit={handleAddChild} className="mb-6 p-4 bg-blue-50 rounded-xl border border-blue-200 space-y-3">
+                <h3 className="text-sm font-bold text-blue-900">Nové dítě</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-stone-700 mb-1">Jméno dítěte *</label>
+                    <input type="text" required value={childForm.name} onChange={(e) => setChildForm((p) => ({ ...p, name: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-stone-300 text-sm focus:border-blue-900 focus:ring-2 focus:ring-blue-900/20 outline-none" placeholder="Jméno" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-stone-700 mb-1">Věk *</label>
+                    <input type="number" required min={4} max={18} value={childForm.age} onChange={(e) => setChildForm((p) => ({ ...p, age: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-stone-300 text-sm focus:border-blue-900 focus:ring-2 focus:ring-blue-900/20 outline-none" placeholder="8" />
+                  </div>
                 </div>
-              ))}
-            </div>
+                <div>
+                  <label className="block text-xs font-medium text-stone-700 mb-1">Program *</label>
+                  <select required value={childForm.programId} onChange={(e) => setChildForm((p) => ({ ...p, programId: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-stone-300 text-sm focus:border-blue-900 focus:ring-2 focus:ring-blue-900/20 outline-none">
+                    <option value="">Vyberte program…</option>
+                    {programs.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.age})</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-stone-700 mb-1">Poznámka (alergie, zkušenosti…)</label>
+                  <textarea value={childForm.note} onChange={(e) => setChildForm((p) => ({ ...p, note: e.target.value }))} rows={2} className="w-full px-3 py-2 rounded-lg border border-stone-300 text-sm focus:border-blue-900 focus:ring-2 focus:ring-blue-900/20 outline-none resize-none" placeholder="Volitelná poznámka…" />
+                </div>
+                <div className="flex gap-2">
+                  <button type="submit" className="bg-blue-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-950 transition-colors">Přidat</button>
+                  <button type="button" onClick={() => setShowAddChild(false)} className="px-4 py-2 rounded-lg text-sm font-medium text-stone-600 border border-stone-300 hover:bg-stone-100 transition-colors">Zrušit</button>
+                </div>
+              </form>
+            )}
+
+            {children.length === 0 ? (
+              <p className="text-stone-500 text-sm text-center py-6">Zatím nemáte přidané žádné dítě.</p>
+            ) : (
+              <div className="space-y-4">
+                {children.map((child) => (
+                  <div key={child.id}>
+                    <button
+                      onClick={() => toggleChild(child.id)}
+                      className="w-full flex items-center gap-4 p-4 bg-stone-50 rounded-xl border border-stone-200 hover:border-blue-300 hover:bg-blue-50/30 transition-colors text-left"
+                    >
+                      <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        <span className="text-blue-900 font-bold text-lg">{child.avatar}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-semibold text-stone-900">{child.name}</h3>
+                        <p className="text-sm text-stone-600">{child.age} let &bull; {child.programName}</p>
+                        <p className="text-xs text-stone-500">Členem od {child.since}</p>
+                      </div>
+                      {expandedChild === child.id ? (
+                        <ChevronDown className="w-5 h-5 text-blue-900 flex-shrink-0" />
+                      ) : (
+                        <ChevronRight className="w-5 h-5 text-stone-400 flex-shrink-0" />
+                      )}
+                    </button>
+                    {expandedChild === child.id && (
+                      <div className="mt-2 ml-4 p-4 bg-blue-50 rounded-xl border border-blue-200 space-y-3">
+                        {editingChild === child.id ? (
+                          /* ── Inline Edit Form ── */
+                          <div className="space-y-3">
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-xs font-medium text-stone-700 mb-1">Jméno</label>
+                                <input type="text" value={editForm.name} onChange={(e) => setEditForm((p) => ({ ...p, name: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-stone-300 text-sm focus:border-blue-900 focus:ring-2 focus:ring-blue-900/20 outline-none" />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-stone-700 mb-1">Věk</label>
+                                <input type="number" min={4} max={18} value={editForm.age} onChange={(e) => setEditForm((p) => ({ ...p, age: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-stone-300 text-sm focus:border-blue-900 focus:ring-2 focus:ring-blue-900/20 outline-none" />
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-stone-700 mb-1">Program</label>
+                              <select value={editForm.programId} onChange={(e) => setEditForm((p) => ({ ...p, programId: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-stone-300 text-sm focus:border-blue-900 focus:ring-2 focus:ring-blue-900/20 outline-none">
+                                {programs.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.age})</option>)}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-stone-700 mb-1">Poznámka</label>
+                              <textarea value={editForm.note} onChange={(e) => setEditForm((p) => ({ ...p, note: e.target.value }))} rows={2} className="w-full px-3 py-2 rounded-lg border border-stone-300 text-sm focus:border-blue-900 focus:ring-2 focus:ring-blue-900/20 outline-none resize-none" />
+                            </div>
+                            <div className="flex gap-2">
+                              <button onClick={() => handleSaveEdit(child.id)} className="bg-blue-900 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-blue-950 transition-colors flex items-center gap-1"><Save className="w-3 h-3" />Uložit</button>
+                              <button onClick={() => setEditingChild(null)} className="px-3 py-1.5 rounded-lg text-xs font-medium text-stone-600 border border-stone-300 hover:bg-stone-100 transition-colors">Zrušit</button>
+                            </div>
+                          </div>
+                        ) : (
+                          /* ── Read-only detail ── */
+                          <>
+                            <div>
+                              <p className="text-xs font-medium text-blue-900 uppercase tracking-wider mb-1">Poznámka</p>
+                              <p className="text-sm text-stone-700">{child.note || "—"}</p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <Link
+                                href={`/programy?program=${child.programId}`}
+                                className="text-xs bg-white text-blue-900 px-3 py-1.5 rounded-full border border-blue-200 hover:bg-blue-100 transition-colors"
+                              >
+                                Zobrazit program: {child.programName}
+                              </Link>
+                              <button
+                                onClick={() => startEdit(child)}
+                                className="text-xs bg-white text-blue-900 px-3 py-1.5 rounded-full border border-blue-200 hover:bg-blue-100 transition-colors flex items-center gap-1"
+                              >
+                                <Pencil className="w-3 h-3" />Upravit
+                              </button>
+                              <button
+                                onClick={() => handleDeleteChild(child.id, child.name)}
+                                className="text-xs bg-white text-red-600 px-3 py-1.5 rounded-full border border-red-200 hover:bg-red-50 transition-colors flex items-center gap-1"
+                              >
+                                <Trash2 className="w-3 h-3" />Odebrat
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Registrované programy */}
+          {/* Registrované programy — derived from children */}
           <div className="bg-white rounded-xl p-6 border border-stone-200">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold text-stone-900">Registrované programy</h2>
@@ -392,25 +535,29 @@ function ParentDashboard({ user, onLogout }: { user: TrilobitUser; onLogout: () 
                 Všechny programy<ChevronRight className="w-4 h-4" />
               </Link>
             </div>
-            <div className="space-y-4">
-              {mockRegisteredPrograms.map((program) => (
-                <Link key={program.id} href="/programy" className="block p-4 bg-stone-50 rounded-xl border border-stone-200 hover:border-blue-300 hover:bg-blue-50/30 transition-colors">
-                  <div className="flex items-start justify-between mb-2">
-                    <h3 className="font-semibold text-stone-900">{program.name}</h3>
-                    <span className="text-xs font-medium text-green-700 bg-green-50 px-2 py-1 rounded-full border border-green-200">Aktivní</span>
-                  </div>
-                  <p className="text-sm text-stone-600 mb-1">Dítě: {program.child}</p>
-                  <div className="flex items-center gap-4 text-xs text-stone-500">
-                    <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{program.day} {program.time}</span>
-                    <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{program.location}</span>
-                  </div>
-                </Link>
-              ))}
-            </div>
+            {registeredPrograms.length === 0 ? (
+              <p className="text-stone-500 text-sm text-center py-6">Přidejte dítě pro zobrazení programů.</p>
+            ) : (
+              <div className="space-y-4">
+                {registeredPrograms.map((rp, i) => (
+                  <Link key={i} href={`/programy?program=${rp.programId}`} className="block p-4 bg-stone-50 rounded-xl border border-stone-200 hover:border-blue-300 hover:bg-blue-50/30 transition-colors">
+                    <div className="flex items-start justify-between mb-2">
+                      <h3 className="font-semibold text-stone-900">{rp.programName}</h3>
+                      <span className="text-xs font-medium text-green-700 bg-green-50 px-2 py-1 rounded-full border border-green-200">Aktivní</span>
+                    </div>
+                    <p className="text-sm text-stone-600 mb-1">Dítě: {rp.childName}</p>
+                    <div className="flex items-center gap-4 text-xs text-stone-500">
+                      {rp.schedule && <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{rp.schedule}</span>}
+                      {rp.location && <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{rp.location}</span>}
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Nadcházející akce */}
+        {/* Nadcházející akce — from real events data */}
         <div className="bg-white rounded-xl p-6 border border-stone-200 mb-8">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-bold text-stone-900">Nadcházející akce</h2>
@@ -418,84 +565,87 @@ function ParentDashboard({ user, onLogout }: { user: TrilobitUser; onLogout: () 
               Celý kalendář<ChevronRight className="w-4 h-4" />
             </Link>
           </div>
-          <div className="space-y-4">
-            {mockUpcomingEventsParent.map((event) => (
-              <div key={event.id}>
-                <button
-                  onClick={() => toggleEvent(event.id)}
-                  className="w-full flex items-start gap-4 p-4 bg-stone-50 rounded-xl border border-stone-200 hover:border-blue-300 hover:bg-blue-50/30 transition-colors text-left"
-                >
-                  {event.poster ? (
-                    <div className="w-24 h-16 rounded-lg overflow-hidden flex-shrink-0">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={event.poster} alt={event.title} className="w-full h-full object-cover" />
-                    </div>
-                  ) : (
-                    <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center flex-shrink-0 border border-blue-200">
-                      <Calendar className="w-5 h-5 text-blue-900" />
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-stone-900">{event.title}</h3>
-                    <div className="flex flex-wrap items-center gap-3 mt-1 text-sm text-stone-600">
-                      <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-blue-900" />{event.date} v {event.time}</span>
-                      <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5 text-blue-900" />{event.location}</span>
-                    </div>
-                    <p className="text-xs text-stone-500 mt-1">Děti: {event.child}</p>
-                  </div>
-                  {expandedEvent === event.id ? (
-                    <ChevronDown className="w-5 h-5 text-blue-900 flex-shrink-0 mt-1" />
-                  ) : (
-                    <ChevronRight className="w-5 h-5 text-stone-400 flex-shrink-0 mt-1" />
-                  )}
-                </button>
-                {expandedEvent === event.id && (
-                  <div className="mt-2 ml-4 p-4 bg-blue-50 rounded-xl border border-blue-200 space-y-3">
-                    {event.attendees && event.attendees.length > 0 && (
-                      <div>
-                        <p className="text-xs font-medium text-blue-900 uppercase tracking-wider mb-2">Přihlášení ({event.attendees.length})</p>
-                        <div className="flex flex-wrap gap-2">
-                          {event.attendees.map((a, i) => (
-                            <div key={i} className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-full border border-blue-200">
-                              <div className="w-5 h-5 rounded-full bg-blue-100 flex items-center justify-center">
-                                <span className="text-[9px] font-bold text-blue-900">{a.avatar}</span>
-                              </div>
-                              <span className="text-xs text-stone-700">{a.name}</span>
-                            </div>
-                          ))}
-                        </div>
+          {upcomingEvents.length === 0 ? (
+            <p className="text-stone-500 text-sm text-center py-6">Momentálně nejsou naplánovány žádné akce.</p>
+          ) : (
+            <div className="space-y-4">
+              {upcomingEvents.map((event) => (
+                <div key={event.id}>
+                  <button
+                    onClick={() => toggleEvent(event.id)}
+                    className="w-full flex items-start gap-4 p-4 bg-stone-50 rounded-xl border border-stone-200 hover:border-blue-300 hover:bg-blue-50/30 transition-colors text-left"
+                  >
+                    {event.poster ? (
+                      <div className="w-24 h-16 rounded-lg overflow-hidden flex-shrink-0">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={event.poster} alt={event.title} className="w-full h-full object-cover" />
+                      </div>
+                    ) : (
+                      <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center flex-shrink-0 border border-blue-200">
+                        <Calendar className="w-5 h-5 text-blue-900" />
                       </div>
                     )}
-                    <div className="flex gap-2">
-                      <Link
-                        href="/kalendar"
-                        className="text-xs bg-white text-blue-900 px-3 py-1.5 rounded-full border border-blue-200 hover:bg-blue-100 transition-colors"
-                      >
-                        Detail akce
-                      </Link>
-                      <Link
-                        href="/kontakt"
-                        className="text-xs bg-white text-blue-900 px-3 py-1.5 rounded-full border border-blue-200 hover:bg-blue-100 transition-colors"
-                      >
-                        Kontaktovat vedoucí
-                      </Link>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-stone-900">{event.title}</h3>
+                      <div className="flex flex-wrap items-center gap-3 mt-1 text-sm text-stone-600">
+                        <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-blue-900" />{new Date(event.date).toLocaleDateString("cs-CZ", { day: "numeric", month: "long", year: "numeric" })} v {event.time}</span>
+                        <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5 text-blue-900" />{event.location}</span>
+                      </div>
+                      <p className="text-xs text-stone-500 mt-1">{event.type === "regular" ? "Pravidelné setkání" : event.type === "expedition" ? "Výprava" : "Speciální akce"}</p>
                     </div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+                    {expandedEvent === event.id ? (
+                      <ChevronDown className="w-5 h-5 text-blue-900 flex-shrink-0 mt-1" />
+                    ) : (
+                      <ChevronRight className="w-5 h-5 text-stone-400 flex-shrink-0 mt-1" />
+                    )}
+                  </button>
+                  {expandedEvent === event.id && (
+                    <div className="mt-2 ml-4 p-4 bg-blue-50 rounded-xl border border-blue-200 space-y-3">
+                      <p className="text-sm text-stone-700">{event.description}</p>
+                      <div className="flex items-center gap-4 text-xs text-stone-600">
+                        <span className="flex items-center gap-1"><Clock className="w-3 h-3" />Trvání: {event.duration}</span>
+                        {event.spotsLeft !== undefined && <span className="flex items-center gap-1"><Users className="w-3 h-3" />Volná místa: {event.spotsLeft}</span>}
+                      </div>
+                      {event.attendees && event.attendees.length > 0 && (
+                        <div>
+                          <p className="text-xs font-medium text-blue-900 uppercase tracking-wider mb-2">Přihlášení ({event.attendees.length})</p>
+                          <div className="flex flex-wrap gap-2">
+                            {event.attendees.map((a, i) => (
+                              <div key={i} className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-full border border-blue-200">
+                                <div className="w-5 h-5 rounded-full bg-blue-100 flex items-center justify-center">
+                                  <span className="text-[9px] font-bold text-blue-900">{a.avatar}</span>
+                                </div>
+                                <span className="text-xs text-stone-700">{a.name}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <div className="flex gap-2">
+                        <Link
+                          href="/kontakt"
+                          className="text-xs bg-white text-blue-900 px-3 py-1.5 rounded-full border border-blue-200 hover:bg-blue-100 transition-colors"
+                        >
+                          Kontaktovat vedoucí
+                        </Link>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Quick Actions */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Link href="/prihlasit" className="bg-blue-50 border border-blue-200 rounded-xl p-6 text-left hover:shadow-lg transition-all hover:scale-105 block">
+          <button onClick={() => { setShowAddChild(true); setChildForm(emptyChildForm); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="bg-blue-50 border border-blue-200 rounded-xl p-6 text-left hover:shadow-lg transition-all hover:scale-105">
             <div className="w-12 h-12 rounded-lg flex items-center justify-center mb-4 bg-blue-100">
               <Plus className="w-6 h-6 text-blue-600" />
             </div>
-            <h3 className="text-lg font-semibold text-stone-900 mb-2">Přihlásit na akci</h3>
-            <p className="text-sm text-stone-600">Zaregistrovat dítě na novou akci nebo program</p>
-          </Link>
+            <h3 className="text-lg font-semibold text-stone-900 mb-2">Přidat dítě</h3>
+            <p className="text-sm text-stone-600">Zaregistrovat další dítě do kmene</p>
+          </button>
           <Link href="/kontakt" className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-left hover:shadow-lg transition-all hover:scale-105 block">
             <div className="w-12 h-12 rounded-lg flex items-center justify-center mb-4 bg-amber-100">
               <Mail className="w-6 h-6 text-amber-600" />
@@ -528,30 +678,15 @@ function ParentDashboard({ user, onLogout }: { user: TrilobitUser; onLogout: () 
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-stone-900 mb-1">Jméno</label>
-                  <input
-                    type="text"
-                    value={settingsForm.name}
-                    onChange={(e) => setSettingsForm((prev) => ({ ...prev, name: e.target.value }))}
-                    className="w-full px-4 py-3 rounded-lg border border-stone-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-900/20 outline-none transition-colors"
-                  />
+                  <input type="text" value={settingsForm.name} onChange={(e) => setSettingsForm((prev) => ({ ...prev, name: e.target.value }))} className="w-full px-4 py-3 rounded-lg border border-stone-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-900/20 outline-none transition-colors" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-stone-900 mb-1">Email</label>
-                  <input
-                    type="email"
-                    value={settingsForm.email}
-                    onChange={(e) => setSettingsForm((prev) => ({ ...prev, email: e.target.value }))}
-                    className="w-full px-4 py-3 rounded-lg border border-stone-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-900/20 outline-none transition-colors"
-                  />
+                  <input type="email" value={settingsForm.email} onChange={(e) => setSettingsForm((prev) => ({ ...prev, email: e.target.value }))} className="w-full px-4 py-3 rounded-lg border border-stone-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-900/20 outline-none transition-colors" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-stone-900 mb-1">Telefon</label>
-                  <input
-                    type="tel"
-                    value={settingsForm.phone}
-                    onChange={(e) => setSettingsForm((prev) => ({ ...prev, phone: e.target.value }))}
-                    className="w-full px-4 py-3 rounded-lg border border-stone-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-900/20 outline-none transition-colors"
-                  />
+                  <input type="tel" value={settingsForm.phone} onChange={(e) => setSettingsForm((prev) => ({ ...prev, phone: e.target.value }))} className="w-full px-4 py-3 rounded-lg border border-stone-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-900/20 outline-none transition-colors" />
                 </div>
                 {settingsSaved && (
                   <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
@@ -559,12 +694,7 @@ function ParentDashboard({ user, onLogout }: { user: TrilobitUser; onLogout: () 
                     <span className="text-sm text-green-800">Změny uloženy!</span>
                   </div>
                 )}
-                <button
-                  onClick={handleSaveSettings}
-                  className="w-full bg-blue-900 text-white px-6 py-3 rounded-lg hover:bg-blue-950 transition-colors font-medium"
-                >
-                  Uložit změny
-                </button>
+                <button onClick={handleSaveSettings} className="w-full bg-blue-900 text-white px-6 py-3 rounded-lg hover:bg-blue-950 transition-colors font-medium">Uložit změny</button>
               </div>
             </div>
           </div>
